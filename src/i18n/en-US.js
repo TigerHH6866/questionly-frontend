@@ -1,0 +1,84 @@
+export default {
+  app: {
+    name: 'Questionly'
+  },
+  nav: {
+    section: 'Workspace',
+    import: 'Import Questions',
+    search: 'Search Bank',
+    language: 'Language',
+    settings: 'Settings',
+    account: 'Not signed in'
+  },
+  lang: {
+    zh: '中文',
+    en: 'EN'
+  },
+  tasks: {
+    list: 'Tasks',
+    detail: 'Task Detail'
+  },
+  import: {
+    title: 'Import Questions',
+    subtitle: 'Upload papers, images or documents to extract questions and generate analysis reports',
+    drop: {
+      title: 'Click to choose a file, or drag and drop it here',
+      hint: 'Supports png / jpg / jpeg / doc / docx / pdf, up to 100MB per file'
+    },
+    start: 'Start recognition',
+    waiting: 'Recognizing document…',
+    failed: 'Recognition failed, please retry',
+    timeout: 'Recognition timed out, please retry',
+    retry: 'Retry',
+    choose: 'Choose file',
+    remove: 'Remove file',
+    error: {
+      type: 'Only png / jpg / jpeg / doc / docx / pdf files are supported',
+      size: 'File size cannot exceed 100MB'
+    },
+    cards: {
+      recognize: {
+        title: 'Recognition',
+        desc: 'Powered by MinerU OCR, precisely extracts stems, equations, tables and illustrations from papers and documents.'
+      },
+      analyze: {
+        title: 'AI Question Analysis',
+        desc: 'Analyzes subject, grade, knowledge points and tested abilities, then generates a structured analysis report.'
+      },
+      search: {
+        title: 'AI Question Search',
+        desc: 'Describe what you need in natural language; it is translated into a database query to search your bank precisely.'
+      }
+    }
+  },
+  process: {
+    title: 'Question Processing',
+    loading: 'Loading parsed result…',
+    loadFailed: 'Failed to load the parsed result',
+    retry: 'Retry',
+    total: '{total} questions',
+    questionLabel: 'Question {n}',
+    empty: 'No question detected',
+    analyze: 'AI Analyze',
+    analyzing: 'Analyzing',
+    viewAnalysis: 'View AI Analysis',
+    panelTitle: 'AI Analysis',
+    close: 'Close',
+    copyLatex: 'Copy LaTeX',
+    copied: 'LaTeX copied',
+    copyFailed: 'Copy failed, please try again',
+    finish: 'Finish',
+    finishTip: 'Unimported questions will not be saved after you finish'
+  },
+  common: {
+    confirm: 'Confirm',
+    cancel: 'Cancel'
+  },
+  search: {
+    title: 'Search Bank',
+    empty: {
+      title: 'Question search is coming soon',
+      desc: 'Once ready, you will be able to search your question bank in natural language, e.g. "find questions about the Gua-Dou principle".'
+    }
+  }
+}

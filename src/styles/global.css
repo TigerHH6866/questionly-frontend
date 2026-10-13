@@ -1,0 +1,81 @@
+* {
+  box-sizing: border-box;
+}
+
+:root {
+  /* Anthropic 品牌色 */
+  --c-dark: #141413;
+  --c-light: #faf9f5;
+  --c-mid-gray: #b0aea5;
+  --c-light-gray: #e8e6dc;
+  --c-orange: #d97757;
+  --c-blue: #6a9bcc;
+  --c-green: #788c5d;
+
+  /* 表面与分隔 */
+  --c-surface: #ffffff;
+  --c-subtle: #faf9f5;
+  --c-border: #e8e6dc;
+  --c-hover: rgba(20, 20, 19, 0.05);
+
+  /* 字体：标题 Poppins / 正文 Lora，中文回落到 macOS 苹方 / Windows 微软雅黑 */
+  --font-heading: 'Poppins', 'PingFang SC', 'Microsoft YaHei', 'Hiragino Sans GB', Arial, sans-serif;
+  --font-body: 'Lora', 'PingFang SC', 'Microsoft YaHei', 'Hiragino Sans GB', Georgia, serif;
+
+  --radius-lg: 20px;
+  --radius-md: 14px;
+  --radius-sm: 10px;
+
+  /* Element Plus 字体对齐品牌规范 */
+  --el-font-family: var(--font-heading);
+}
+
+html,
+body,
+#app {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+}
+
+body {
+  font-family: var(--font-body);
+  color: var(--c-dark);
+  background: linear-gradient(160deg, #faf9f5 0%, #f3f1e8 100%);
+  overflow: hidden;
+  -webkit-font-smoothing: antialiased;
+}
+
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
+  margin: 0;
+  font-family: var(--font-heading);
+  font-weight: 600;
+  color: var(--c-dark);
+}
+
+button {
+  font-family: var(--font-heading);
+}
+
+/* 确认弹窗的主按钮与站内按钮保持同一主色 */
+.el-message-box__btns .el-button--primary {
+  border-color: var(--c-orange);
+  background: var(--c-orange);
+  color: #ffffff;
+}
+
+.el-message-box__btns .el-button--primary:focus {
+  border-color: var(--c-orange);
+  background: var(--c-orange);
+}
+
+.el-message-box__btns .el-button--primary:hover {
+  border-color: #c4623f;
+  background: #c4623f;
+  color: #ffffff;
+}

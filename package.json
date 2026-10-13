@@ -1,0 +1,24 @@
+{
+  "name": "questionly-frontend",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview --port 5177"
+  },
+  "dependencies": {
+    "axios": "^1.7.9",
+    "element-plus": "^2.9.1",
+    "katex": "^0.19.0",
+    "markdown-it": "^15.0.2",
+    "vue": "^3.5.13",
+    "vue-i18n": "^9.14.5",
+    "vue-router": "^4.5.0"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-vue": "^5.2.1",
+    "vite": "^6.0.5"
+  }
+}
