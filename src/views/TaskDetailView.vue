@@ -16,9 +16,6 @@
         <el-descriptions-item label="文件类型">{{ task.fileType }}</el-descriptions-item>
         <el-descriptions-item label="MinerU 任务">{{ task.mineruTaskId }}</el-descriptions-item>
         <el-descriptions-item label="题目数">{{ task.questionCount }}</el-descriptions-item>
-        <el-descriptions-item label="源文件地址" :span="2">
-          <a v-if="task.fileUrl" :href="task.fileUrl" target="_blank">{{ task.fileUrl }}</a>
-        </el-descriptions-item>
         <el-descriptions-item label="解析结果" :span="2">
           <a v-if="task.resultUrl" :href="task.resultUrl" target="_blank">{{ task.resultUrl }}</a>
           <span v-else>—</span>
@@ -67,8 +64,14 @@ onMounted(load)
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 12px;
+}
+.card-header > div {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 .btn {
-  margin-left: 12px;
+  margin-left: 4px;
 }
 </style>

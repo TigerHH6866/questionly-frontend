@@ -4,6 +4,9 @@ import katex from 'katex'
 // html:false 避免文档正文里的原始 HTML 被执行
 const md = new MarkdownIt({ html: false, linkify: false, breaks: true })
 
+// 题库题干里可能内嵌 OCR 直接给出的表格 HTML（<table>…），这类文本需要放行原始 HTML
+const rich = new MarkdownIt({ html: true, linkify: false, breaks: true })
+
 const TOKEN_PREFIX = 'KATEXPLACEHOLDER'
 
 /**
@@ -50,6 +53,11 @@ export function renderMarkdown(text) {
 /** 渲染单行 Markdown（用于标题等行内场景） */
 export function renderInline(text) {
   return renderWith(text, (source) => md.renderInline(source))
+}
+
+/** 渲染整段 Markdown 且放行原始 HTML（题库题干里可能内嵌表格 HTML） */
+export function renderRichMarkdown(text) {
+  return renderWith(text, (source) => rich.render(source))
 }
 
 export default md

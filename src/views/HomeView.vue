@@ -37,8 +37,9 @@
       <template v-else>
         <div class="file-row">
           <span class="file-icon" :class="'file-icon--' + picked.kind">
+            <img v-if="picked.kind === 'image' && preview" :src="preview" class="file-thumb" alt="" />
             <svg
-              v-if="picked.kind === 'image'"
+              v-else-if="picked.kind === 'image'"
               viewBox="0 0 24 24"
               width="22"
               height="22"
@@ -179,10 +180,11 @@
 </template>
 
 <script setup>
-import { computed, onUnmounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { createOcrTask, getOcrTask } from '@/api/ocr'
+import { isLoggedIn } from '@/utils/auth'
 
 const ACCEPT = '.png,.jpg,.jpeg,.doc,.docx,.pdf'
 const ALLOWED = ['png', 'jpg', 'jpeg', 'doc', 'docx', 'pdf']
@@ -200,6 +202,16 @@ const dragover = ref(false)
 const picked = ref(null)
 const file = ref(null)
 const error = ref('')
+
+/** 图片类文件的缩略图预览（objectURL），切换文件或离开页面时释放 */
+const preview = ref('')
+
+function revokePreview() {
+  if (preview.value) {
+    URL.revokeObjectURL(preview.value)
+    preview.value = ''
+  }
+}
 
 /** 'idle' | 'busy' | 'failed' */
 const phase = ref('idle')
@@ -237,10 +249,22 @@ function onDrop(event) {
   if (next) accept(next)
 }
 
+/**
+ * Ctrl+V 直接载入：截图工具（Win+Shift+S、微信等）产出的位图、
+ * 以及资源管理器里复制的文件，都会以 File 形式出现在 clipboardData.files 中。
+ * 只在空载状态响应，避免覆盖已选文件；纯文本粘贴不拦截，交给默认行为。
+ */
+function onPaste(event) {
+  if (picked.value || isBusy.value) return
+  const next = event.clipboardData?.files?.[0]
+  if (next) accept(next)
+}
+
 function accept(next) {
   error.value = ''
   picked.value = null
   file.value = null
+  revokePreview()
   const ext = next.name.split('.').pop()?.toLowerCase()
   if (!ALLOWED.includes(ext)) {
     error.value = t('import.error.type')
@@ -250,8 +274,11 @@ function accept(next) {
     error.value = t('import.error.size')
     return
   }
+  const kind = kindOf(ext)
   file.value = next
-  picked.value = { name: next.name, size: formatSize(next.size), kind: kindOf(ext) }
+  picked.value = { name: next.name, size: formatSize(next.size), kind }
+  // 图片用缩略图替代默认图标，方便确认载入的是哪一张
+  if (kind === 'image') preview.value = URL.createObjectURL(next)
   resetPhase()
 }
 
@@ -273,6 +300,7 @@ function clear() {
   picked.value = null
   file.value = null
   error.value = ''
+  revokePreview()
   resetPhase()
 }
 
@@ -287,6 +315,11 @@ function onStart() {
 
 async function start() {
   if (!file.value) return
+  if (!isLoggedIn()) {
+    // 未登录时复用全局登录弹窗
+    window.dispatchEvent(new CustomEvent('questionly:unauthorized'))
+    return
+  }
   phase.value = 'busy'
   failKey.value = ''
   failRaw.value = ''
@@ -328,7 +361,13 @@ function poll(id) {
   }, POLL_INTERVAL)
 }
 
-onUnmounted(stopPolling)
+onMounted(() => document.addEventListener('paste', onPaste))
+
+onUnmounted(() => {
+  document.removeEventListener('paste', onPaste)
+  revokePreview()
+  stopPolling()
+})
 
 function formatSize(bytes) {
   if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(0) + ' KB'
@@ -353,8 +392,9 @@ function formatSize(bytes) {
   margin: 0 auto;
   font-size: 20px;
   font-weight: 600;
-  line-height: 1.5;
-  letter-spacing: -0.01em;
+  line-height: 1.45;
+  letter-spacing: -0.015em;
+  text-wrap: balance;
 }
 
 /* 上传区 */
@@ -371,7 +411,9 @@ function formatSize(bytes) {
   background: var(--c-surface);
   text-align: center;
   cursor: pointer;
-  transition: border-color 0.18s ease, background 0.18s ease, box-shadow 0.18s ease;
+  box-shadow: var(--shadow-xs);
+  transition: border-color 0.22s var(--ease-soft), background 0.22s var(--ease-soft),
+    box-shadow 0.22s var(--ease-soft), transform 0.22s var(--ease-out);
 }
 
 .drop-mark {
@@ -381,19 +423,22 @@ function formatSize(bytes) {
   width: 54px;
   height: 54px;
   margin-bottom: 6px;
-  border-radius: 16px;
+  border-radius: 18px;
   background: var(--c-dark);
   color: var(--c-orange);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.12), 0 8px 18px -10px rgba(20, 20, 19, 0.6);
 }
 
 .dropzone:hover,
 .dropzone.is-dragover {
   border-color: var(--c-orange);
-  background: rgba(217, 119, 87, 0.05);
+  background: rgba(217, 119, 87, 0.04);
+  box-shadow: var(--shadow-sm);
+  transform: translateY(-1px);
 }
 
 .dropzone.is-dragover {
-  box-shadow: 0 0 0 4px rgba(217, 119, 87, 0.1);
+  box-shadow: var(--shadow-sm), 0 0 0 4px rgba(217, 119, 87, 0.12);
 }
 
 .file-input {
@@ -406,12 +451,15 @@ function formatSize(bytes) {
   font-family: var(--font-heading);
   font-size: 15px;
   font-weight: 500;
+  letter-spacing: -0.005em;
+  line-height: 1.45;
 }
 
 .drop-hint {
   margin: 0;
   font-family: var(--font-body);
   font-size: 13px;
+  line-height: 1.6;
   color: var(--c-mid-gray);
 }
 
@@ -437,6 +485,7 @@ function formatSize(bytes) {
   border: 1px solid var(--c-border);
   border-radius: var(--radius-sm);
   background: var(--c-surface);
+  box-shadow: var(--shadow-xs);
   text-align: left;
 }
 
@@ -453,16 +502,31 @@ function formatSize(bytes) {
 .file-icon--image {
   background: rgba(106, 155, 204, 0.14);
   color: var(--c-blue);
+  box-shadow: inset 0 0 0 1px rgba(106, 155, 204, 0.18);
+  /* 有缩略图时裁到圆角内 */
+  overflow: hidden;
+}
+
+/* 图片缩略图：铺满图标方块并居中裁切，替代默认图标 */
+.file-thumb {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  outline: 1px solid var(--c-hairline-strong);
+  outline-offset: -1px;
 }
 
 .file-icon--pdf {
   background: rgba(217, 119, 87, 0.14);
   color: var(--c-orange);
+  box-shadow: inset 0 0 0 1px rgba(217, 119, 87, 0.18);
 }
 
 .file-icon--doc {
   background: rgba(120, 140, 93, 0.14);
   color: var(--c-green);
+  box-shadow: inset 0 0 0 1px rgba(120, 140, 93, 0.18);
 }
 
 .file-meta {
@@ -477,11 +541,13 @@ function formatSize(bytes) {
   font-family: var(--font-heading);
   font-size: 14px;
   font-weight: 500;
+  letter-spacing: -0.005em;
   word-break: break-all;
 }
 
 .file-size {
   font-size: 12px;
+  font-variant-numeric: tabular-nums;
   color: var(--c-mid-gray);
 }
 
@@ -519,12 +585,20 @@ function formatSize(bytes) {
   font-size: 14px;
   font-weight: 500;
   cursor: pointer;
-  transition: background 0.15s ease, transform 0.15s ease;
+  box-shadow: 0 1px 2px rgba(217, 119, 87, 0.3), 0 6px 14px -8px rgba(217, 119, 87, 0.7);
+  transition: background 0.2s var(--ease-soft), transform 0.2s var(--ease-out),
+    box-shadow 0.2s var(--ease-soft);
 }
 
 .start:hover {
   background: #c4623f;
   transform: translateY(-1px);
+  box-shadow: 0 1px 3px rgba(217, 119, 87, 0.32), 0 10px 20px -10px rgba(217, 119, 87, 0.75);
+}
+
+.start:active {
+  transform: translateY(0);
+  box-shadow: 0 1px 2px rgba(217, 119, 87, 0.3);
 }
 
 .dropzone:not(.has-file) .start {
@@ -539,6 +613,8 @@ function formatSize(bytes) {
 .dropzone.is-busy:hover {
   border-color: var(--c-light-gray);
   background: var(--c-surface);
+  box-shadow: var(--shadow-xs);
+  transform: none;
 }
 
 .waiting {
@@ -553,6 +629,7 @@ function formatSize(bytes) {
   height: 18px;
   border: 2px solid var(--c-light-gray);
   border-top-color: var(--c-orange);
+  border-right-color: rgba(217, 119, 87, 0.4);
   border-radius: 50%;
   animation: spin 0.8s linear infinite;
 }
@@ -585,16 +662,19 @@ function formatSize(bytes) {
 }
 
 .card {
-  padding: 20px 18px;
+  padding: 22px 20px;
   border: 1px solid var(--c-border);
   border-radius: var(--radius-md);
   background: var(--c-surface);
-  transition: border-color 0.18s ease, transform 0.18s ease;
+  box-shadow: var(--shadow-xs);
+  transition: border-color 0.22s var(--ease-soft), transform 0.22s var(--ease-out),
+    box-shadow 0.22s var(--ease-soft);
 }
 
 .card:hover {
   border-color: rgba(217, 119, 87, 0.35);
   transform: translateY(-2px);
+  box-shadow: var(--shadow-sm);
 }
 
 .card-icon {
@@ -610,29 +690,33 @@ function formatSize(bytes) {
 .card-icon--blue {
   background: rgba(106, 155, 204, 0.14);
   color: var(--c-blue);
+  box-shadow: inset 0 0 0 1px rgba(106, 155, 204, 0.18);
 }
 
 .card-icon--orange {
   background: rgba(217, 119, 87, 0.14);
   color: var(--c-orange);
+  box-shadow: inset 0 0 0 1px rgba(217, 119, 87, 0.18);
 }
 
 .card-icon--green {
   background: rgba(120, 140, 93, 0.14);
   color: var(--c-green);
+  box-shadow: inset 0 0 0 1px rgba(120, 140, 93, 0.18);
 }
 
 .card-title {
   font-size: 15px;
   font-weight: 600;
-  line-height: 1.4;
+  line-height: 1.35;
+  letter-spacing: -0.005em;
 }
 
 .card-desc {
   margin: 8px 0 0;
   font-family: var(--font-body);
   font-size: 13px;
-  line-height: 1.7;
+  line-height: 1.72;
   color: var(--c-mid-gray);
 }
 

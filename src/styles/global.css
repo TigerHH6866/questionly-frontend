@@ -18,6 +18,10 @@
   --c-border: #e8e6dc;
   --c-hover: rgba(20, 20, 19, 0.05);
 
+  /* 光学描边：极淡的墨色线条，只在需要比 --c-border 更轻的接缝处使用 */
+  --c-hairline: rgba(20, 20, 19, 0.06);
+  --c-hairline-strong: rgba(20, 20, 19, 0.1);
+
   /* 字体：标题 Poppins / 正文 Lora，中文回落到 macOS 苹方 / Windows 微软雅黑 */
   --font-heading: 'Poppins', 'PingFang SC', 'Microsoft YaHei', 'Hiragino Sans GB', Arial, sans-serif;
   --font-body: 'Lora', 'PingFang SC', 'Microsoft YaHei', 'Hiragino Sans GB', Georgia, serif;
@@ -26,8 +30,23 @@
   --radius-md: 14px;
   --radius-sm: 10px;
 
-  /* Element Plus 字体对齐品牌规范 */
+  /* 阴影：分两层（贴地的接触阴影 + 大范围环境光），比单层大模糊更接近纸张的浮起感 */
+  --shadow-xs: 0 1px 2px rgba(20, 20, 19, 0.05);
+  --shadow-sm: 0 1px 2px rgba(20, 20, 19, 0.04), 0 6px 16px -10px rgba(20, 20, 19, 0.16);
+  --shadow-md: 0 1px 3px rgba(20, 20, 19, 0.05), 0 12px 30px -16px rgba(20, 20, 19, 0.2);
+  --shadow-lg: 0 1px 3px rgba(20, 20, 19, 0.05), 0 20px 48px -24px rgba(20, 20, 19, 0.24);
+
+  /* 卡片顶部高光：白面卡片在米色背景上多一道极淡的顶边，避免大圆角显得扁平 */
+  --inset-top: inset 0 1px 0 rgba(255, 255, 255, 0.9);
+
+  /* 缓动 */
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-soft: cubic-bezier(0.4, 0, 0.2, 1);
+
+  /* Element Plus 字号与圆角对齐品牌规范 */
   --el-font-family: var(--font-heading);
+  --el-border-radius-base: var(--radius-sm);
+  --el-border-radius-small: 8px;
 }
 
 html,
@@ -44,6 +63,10 @@ body {
   background: linear-gradient(160deg, #faf9f5 0%, #f3f1e8 100%);
   overflow: hidden;
   -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+  font-optical-sizing: auto;
+  font-synthesis: none;
 }
 
 h1,
@@ -56,9 +79,126 @@ h6 {
   font-family: var(--font-heading);
   font-weight: 600;
   color: var(--c-dark);
+  text-wrap: balance;
+}
+
+/* 衬线正文：Lora 在大字号下需要更松的行距与更细的字距才不显拥挤 */
+p {
+  text-wrap: pretty;
 }
 
 button {
+  font-family: var(--font-heading);
+}
+
+::selection {
+  background: rgba(217, 119, 87, 0.22);
+}
+
+/* 键盘可达性：统一可见焦点环，鼠标点击不触发 */
+:focus-visible {
+  outline: 2px solid rgba(217, 119, 87, 0.5);
+  outline-offset: 2px;
+}
+
+/* 滚动条：细窄、无轨道，收起时几乎隐形 */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--c-light-gray) transparent;
+}
+
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+*::-webkit-scrollbar-thumb {
+  border: 3px solid transparent;
+  border-radius: 999px;
+  background: var(--c-light-gray);
+  background-clip: padding-box;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background: var(--c-mid-gray);
+  background-clip: padding-box;
+}
+
+/* ---------- Element Plus 细节对齐 ---------- */
+
+/* 卡片：圆角、发丝描边与分层阴影与站内卡片保持一致 */
+.el-card {
+  border-color: var(--c-border);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  box-shadow: var(--shadow-sm) !important;
+}
+
+.el-card.is-never-shadow {
+  box-shadow: var(--shadow-sm) !important;
+}
+
+.el-card__header {
+  padding: 14px 20px;
+  border-bottom: 1px solid var(--c-border);
+  font-family: var(--font-heading);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.el-card__body {
+  padding: 20px;
+}
+
+/* 标签：胶囊形 + 略紧的字距，与题号标签同一套观感 */
+.el-tag {
+  height: 22px;
+  padding: 0 10px;
+  border-radius: 999px;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+}
+
+/* 按钮：胶囊形，主色按钮补一层极淡投影做轻微浮起 */
+.el-button {
+  border-radius: 999px;
+  font-weight: 500;
+}
+
+.el-button--primary {
+  box-shadow: 0 1px 2px rgba(217, 119, 87, 0.24);
+}
+
+/* 表格：表头用米色底 + 标题字，正文行沿用衬线正文 */
+.el-table {
+  font-family: var(--font-body);
+}
+
+.el-table th.el-table__cell {
+  background: var(--c-subtle);
+  font-family: var(--font-heading);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--c-dark);
+}
+
+.el-table td.el-table__cell {
+  padding: 12px 0;
+}
+
+/* 描述列表：标签列统一米色底 */
+.el-descriptions__body .el-descriptions__cell.is-bordered-label {
+  background: var(--c-subtle);
+  font-family: var(--font-heading);
+  font-weight: 500;
+  color: var(--c-dark);
+}
+
+.el-pagination {
   font-family: var(--font-heading);
 }
 

@@ -292,3 +292,43 @@ export function questionMarkdown(blocks, imagesBase = '') {
   })
   return parts.join('\n\n')
 }
+
+/**
+ * 题库里已存的题干（Markdown 文本）还原成 LaTeX 片段，用于复制到 LaTeX 编辑器。
+ * 与 questionLatex 同源，只是输入从块序列换成了 Markdown：块之间以空行分隔，
+ * 逐块识别公式 / 图片 / 表格 HTML，其余按普通文本转义。
+ */
+export function markdownToLatex(markdown) {
+  const parts = []
+  String(markdown ?? '')
+    .split(/\n{2,}/)
+    .forEach((chunk) => {
+      const piece = chunk.trim()
+      if (!piece) return
+
+      if (/^<table[\s\S]*<\/table>$/i.test(piece)) {
+        const tabular = tableToLatex(piece)
+        if (tabular) parts.push(tabular)
+        return
+      }
+      const display = piece.match(/^\$\$([\s\S]+?)\$\$$/)
+      if (display) {
+        parts.push(`\\[\n${display[1].trim()}\n\\]`)
+        return
+      }
+      const image = piece.match(/^!\[[^\]]*\]\((\S+)\)$/)
+      if (image) {
+        parts.push(`\\includegraphics[width=0.6\\linewidth]{${image[1]}}`)
+        return
+      }
+
+      // 去掉 Markdown 的标题 / 列表标记，块内按行拆成独立段落
+      const text = piece
+        .split('\n')
+        .map((line) => line.replace(/^\s*#{1,6}\s*/, '').replace(/^\s*[-*+]\s+/, '').trim())
+        .filter(Boolean)
+        .join('\n\n')
+      if (text) parts.push(spansToLatex(text))
+    })
+  return parts.join('\n\n')
+}

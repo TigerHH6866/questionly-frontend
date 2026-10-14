@@ -29,27 +29,29 @@
             :class="{ 'is-analyzed': q.index === panelIndex }"
           >
             <template v-if="q.active">
-              <div v-if="!single" class="q-tag">{{ t('process.questionLabel', { n: q.index + 1 }) }}</div>
-              <div class="q-body" v-html="q.html"></div>
+              <div class="q-head">
+                <div v-if="!single" class="q-tag">{{ t('process.questionLabel', { n: q.index + 1 }) }}</div>
 
-              <div class="q-foot" :class="{ 'is-tight': q.tight }">
-                <button class="copy-latex" type="button" @click="copyLatex(q.index)">
-                  {{ t('process.copyLatex') }}
-                </button>
-                <button
-                  class="analyze"
-                  type="button"
-                  :disabled="busy && analyzingIndex !== q.index"
-                  @click="analyze(q.index)"
-                >
-                  <span v-if="analyzingIndex === q.index" class="mini-spinner" aria-hidden="true"></span>
-                  {{ analyzingIndex === q.index
-                    ? t('process.analyzing')
-                    : q.analyzed
-                      ? t('process.viewAnalysis')
-                      : t('process.analyze') }}
-                </button>
+                <div class="q-actions">
+                  <button class="copy-latex" type="button" @click="copyLatex(q.index)">
+                    {{ t('process.copyLatex') }}
+                  </button>
+                  <button
+                    class="analyze"
+                    type="button"
+                    :disabled="busy && analyzingIndex !== q.index"
+                    @click="analyze(q.index)"
+                  >
+                    <span v-if="analyzingIndex === q.index" class="mini-spinner" aria-hidden="true"></span>
+                    {{ analyzingIndex === q.index
+                      ? t('process.analyzing')
+                      : q.analyzed
+                        ? t('process.viewAnalysis')
+                        : t('process.analyze') }}
+                  </button>
+                </div>
               </div>
+              <div class="q-body" v-html="q.html"></div>
             </template>
             <div v-else class="q-skeleton" aria-hidden="true"></div>
           </section>
@@ -76,7 +78,24 @@
             </svg>
           </button>
         </div>
-        <div class="panel-body" v-html="panelHtml"></div>
+        <div
+          ref="panelBodyRef"
+          class="panel-body"
+          contenteditable="true"
+          spellcheck="false"
+          @input="onPanelInput"
+        ></div>
+
+        <div class="panel-foot">
+          <button class="save-bank" type="button" :disabled="saving || !!panelQuestion?.saved" @click="saveToBank">
+            <span v-if="saving" class="mini-spinner" aria-hidden="true"></span>
+            {{ saving
+              ? t('process.saving')
+              : panelQuestion?.saved
+                ? t('process.saved')
+                : t('process.saveToBank') }}
+          </button>
+        </div>
       </aside>
     </template>
   </div>
@@ -88,9 +107,10 @@ import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { getTaskResult } from '@/api/ocr'
-import { analyzeQuestion } from '@/api/question'
+import { analyzeQuestion, saveQuestion, getImportedIndexes } from '@/api/question'
 import { toBlocks, splitQuestions, renderQuestion, questionMarkdown, questionLatex } from '@/utils/document'
 import { renderMarkdown } from '@/utils/markdown'
+import { toEditedMarkdown } from '@/utils/editedMarkdown'
 import { lastImportPath, saveProcessState, getProcessState, dropProcessState } from '@/utils/importSession'
 
 const props = defineProps({ id: { type: String, required: true } })
@@ -127,38 +147,93 @@ let observer = null
 /** 已分析过的题目结果缓存：题号 -> Markdown */
 const analysisCache = new Map()
 
+/** 用户在面板里就地编辑后的 HTML 缓存：题号 -> HTML（未编辑过的题号不在其中） */
+const editCache = new Map()
+
+/** 面板正文节点，读取编辑结果用 */
+const panelBodyRef = ref(null)
+/** 正在入库 */
+const saving = ref(false)
+/** 当前面板对应的题目 */
+const panelQuestion = computed(() => questions.value[panelIndex.value] || null)
+
 /** 已点「结束」，离开页面时不再缓存本页状态 */
 let finished = false
-
-/** 只有文本结尾的题目才有行高余量，可以让按钮上提到与文字底部齐平 */
-const TEXT_TAIL_TYPES = new Set(['paragraph', 'title'])
-
-function hasTextTail(blocks) {
-  const list = blocks || []
-  for (let i = list.length - 1; i >= 0; i -= 1) {
-    const block = list[i]
-    if (!block.text && !block.html && !block.latex && !block.imgPath) continue
-    return TEXT_TAIL_TYPES.has(block.type)
-  }
-  return false
-}
 
 function activate(index) {
   const question = questions.value[index]
   if (!question || question.active) return
   question.active = true
   question.html = renderQuestion(question.blocks, imagesBase.value)
-  question.tight = hasTextTail(question.blocks)
 }
 
 function showPanel(index, markdown) {
   panelIndex.value = index
-  panelHtml.value = renderMarkdown(markdown)
+  // 编辑过的题目直接用编辑缓存还原，未编辑过的重新渲染 Markdown
+  panelHtml.value = editCache.has(index) ? editCache.get(index) : renderMarkdown(markdown)
+  nextTick(syncPanelBody)
+}
+
+/**
+ * 面板正文手动写入 innerHTML，不挂 v-html 绑定。
+ * 用户就在这个节点里编辑，而 v-html 会在父组件任意一次重渲染时重新赋值并清空改动。
+ */
+function syncPanelBody() {
+  const el = panelBodyRef.value
+  if (el && panelIndex.value >= 0) el.innerHTML = panelHtml.value
 }
 
 function closePanel() {
   panelIndex.value = -1
   panelHtml.value = ''
+}
+
+/** 面板里就地编辑：只写缓存、不回写 panelHtml，避免重渲染打断光标 */
+function onPanelInput() {
+  const el = panelBodyRef.value
+  if (!el || panelIndex.value < 0) return
+  editCache.set(panelIndex.value, el.innerHTML)
+}
+
+/** 存入题库：单题写入 questions 表，题干用题干 Markdown，details 用分析结果 Markdown */
+async function saveToBank() {
+  const index = panelIndex.value
+  const question = questions.value[index]
+  if (!question || saving.value || question.saved) return
+
+  const edited = editCache.get(index)
+  const details = edited ? toEditedMarkdown(edited) : analysisCache.get(index) || ''
+  if (!details) {
+    ElMessage.warning(t('process.saveEmpty'))
+    return
+  }
+
+  saving.value = true
+  try {
+    await saveQuestion(questionMarkdown(question.blocks, imagesBase.value), details, props.id, index)
+    question.saved = true
+    ElMessage.success(t('process.saved'))
+  } catch {
+    // 失败提示由 http 拦截器统一弹出
+  } finally {
+    saving.value = false
+  }
+}
+
+/**
+ * 回显入库状态：拉取该文件已入库的题号，把对应题目标记为已保存。
+ * 只置真不清除（避免与本次会话内的保存结果冲突），失败时静默忽略，不影响页面。
+ */
+async function loadImported() {
+  try {
+    const loaded = await getImportedIndexes(props.id)
+    const saved = new Set(loaded || [])
+    questions.value.forEach((question) => {
+      if (saved.has(question.index)) question.saved = true
+    })
+  } catch {
+    // 入库状态只是辅助信息，取不到不阻塞页面
+  }
 }
 
 async function analyze(index) {
@@ -268,6 +343,7 @@ function snapshot() {
     panelIndex: panelIndex.value,
     panelHtml: panelHtml.value,
     analysis: new Map(analysisCache),
+    edits: new Map(editCache),
     scrollTop: scrollParentOf(rootRef.value)?.scrollTop ?? 0
   }
 }
@@ -282,6 +358,8 @@ function restore(state) {
   panelHtml.value = state.panelHtml
   analysisCache.clear()
   state.analysis.forEach((markdown, index) => analysisCache.set(index, markdown))
+  editCache.clear()
+  state.edits.forEach((html, index) => editCache.set(index, html))
 }
 
 async function load() {
@@ -293,9 +371,11 @@ async function load() {
     failed.value = false
     await nextTick()
     renderQuestions()
+    syncPanelBody()
     await nextTick()
     const scroller = scrollParentOf(rootRef.value)
     if (scroller) scroller.scrollTop = cached.scrollTop
+    loadImported()
     return
   }
 
@@ -305,6 +385,7 @@ async function load() {
   panelIndex.value = -1
   panelHtml.value = ''
   analysisCache.clear()
+  editCache.clear()
 
   try {
     const data = await getTaskResult(props.id)
@@ -315,7 +396,7 @@ async function load() {
       q.active = false
       q.html = ''
       q.analyzed = false
-      q.tight = false
+      q.saved = false
     })
     questions.value = parsed.questions
     single.value = parsed.single
@@ -329,6 +410,7 @@ async function load() {
   loading.value = false
   await nextTick()
   renderQuestions()
+  loadImported()
 }
 
 /** 结束处理：提示未入库题目不会保存，确认后丢弃本页状态并回到载入文件页 */
@@ -366,8 +448,8 @@ onBeforeUnmount(() => {
 .process {
   --head-h: 52px;
   --head-gap: 20px;
-  /* AI 分析按钮高度，用于把它上提到与题干文字底部对齐 */
-  --analyze-h: 36px;
+  /* 题头操作按钮高度，与题号标签同一行居中对齐 */
+  --action-h: 27px;
   display: flex;
   gap: 24px;
   align-items: flex-start;
@@ -399,7 +481,7 @@ onBeforeUnmount(() => {
   border: 1px solid var(--c-border);
   border-radius: var(--radius-md);
   background: var(--c-surface);
-  box-shadow: 0 8px 24px rgba(20, 20, 19, 0.06);
+  box-shadow: var(--shadow-md), var(--inset-top);
 }
 
 .head-right {
@@ -424,12 +506,21 @@ onBeforeUnmount(() => {
   font-size: 12px;
   font-weight: 500;
   cursor: pointer;
-  transition: background 0.18s ease, border-color 0.18s ease;
+  box-shadow: 0 1px 2px rgba(217, 119, 87, 0.28);
+  transition: background 0.2s var(--ease-soft), border-color 0.2s var(--ease-soft),
+    box-shadow 0.2s var(--ease-soft), transform 0.2s var(--ease-out);
 }
 
 .finish:hover {
   background: #c4623f;
   border-color: #c4623f;
+  transform: translateY(-1px);
+  box-shadow: 0 1px 3px rgba(217, 119, 87, 0.3), 0 8px 16px -9px rgba(217, 119, 87, 0.7);
+}
+
+.finish:active {
+  transform: translateY(0);
+  box-shadow: 0 1px 2px rgba(217, 119, 87, 0.28);
 }
 
 .doc {
@@ -437,6 +528,7 @@ onBeforeUnmount(() => {
   font-family: var(--font-heading);
   font-size: 15px;
   font-weight: 600;
+  letter-spacing: -0.01em;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -446,6 +538,7 @@ onBeforeUnmount(() => {
   flex: none;
   font-family: var(--font-body);
   font-size: 13px;
+  font-variant-numeric: tabular-nums;
   color: var(--c-mid-gray);
   white-space: nowrap;
 }
@@ -459,12 +552,15 @@ onBeforeUnmount(() => {
   font-family: var(--font-heading);
   font-size: 13px;
   cursor: pointer;
-  transition: background 0.15s ease, border-color 0.15s ease;
+  box-shadow: 0 1px 2px rgba(217, 119, 87, 0.28);
+  transition: background 0.2s var(--ease-soft), border-color 0.2s var(--ease-soft),
+    box-shadow 0.2s var(--ease-soft);
 }
 
 .btn:hover:not(:disabled) {
   border-color: #c4623f;
   background: #c4623f;
+  box-shadow: 0 1px 3px rgba(217, 119, 87, 0.3), 0 8px 16px -9px rgba(217, 119, 87, 0.7);
 }
 
 .sheet {
@@ -472,7 +568,7 @@ onBeforeUnmount(() => {
   border: 1px solid var(--c-border);
   border-radius: var(--radius-lg);
   background: var(--c-surface);
-  box-shadow: 0 12px 32px rgba(20, 20, 19, 0.05);
+  box-shadow: var(--shadow-md), var(--inset-top);
 }
 
 /* 题目之间用分割线 + 题号标签区分；上下内边距为分割线到题目的间距 */
@@ -491,9 +587,16 @@ onBeforeUnmount(() => {
   box-shadow: inset 3px 0 0 var(--c-orange);
 }
 
+/* 题头：左侧题号标签 + 右侧操作入口，同处一行 */
+.q-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
 .q-tag {
   display: inline-block;
-  margin-bottom: 14px;
   padding: 3px 12px;
   border-radius: 999px;
   background: rgba(217, 119, 87, 0.12);
@@ -501,51 +604,56 @@ onBeforeUnmount(() => {
   font-family: var(--font-heading);
   font-size: 12px;
   font-weight: 600;
-  letter-spacing: 0.02em;
+  letter-spacing: 0.01em;
+  box-shadow: inset 0 0 0 1px rgba(217, 119, 87, 0.16);
 }
 
-/* 题干右下角的操作入口：默认排在题干下方 */
-.q-foot {
+/* 操作入口：贴行右侧；无题号标签（单题兜底）时靠右对齐 */
+.q-actions {
   display: flex;
   align-items: center;
-  justify-content: flex-end;
-  gap: 10px;
-  margin-top: 14px;
+  gap: 8px;
+  margin-left: auto;
 }
 
-/* 题干以文字结尾时，上提自身高度，使按钮下边缘与最后一行文字底部齐平 */
-.q-foot.is-tight {
-  margin-top: calc(-1 * var(--analyze-h));
-}
-
-/* 题干最后一个块不留底部外边距，避免按钮与表格/图片/公式之间出现空隙 */
+/* 题干最后一个块不留底部外边距，避免末尾出现空隙 */
 :deep(.q-body > :last-child) {
   margin-bottom: 0;
 }
 
-/* 题干右下角的操作入口：统一主色底 + 白字 */
+/* 题头操作入口：统一主色底 + 白字 */
 .analyze,
 .copy-latex {
   display: inline-flex;
   align-items: center;
-  gap: 7px;
-  height: var(--analyze-h);
-  padding: 0 16px;
+  gap: 6px;
+  height: var(--action-h);
+  padding: 0 12px;
   border: 1px solid var(--c-orange);
   border-radius: 999px;
   background: var(--c-orange);
   color: #ffffff;
   font-family: var(--font-heading);
-  font-size: 13px;
+  font-size: 11.5px;
   font-weight: 500;
   cursor: pointer;
-  transition: background 0.18s ease, border-color 0.18s ease, color 0.18s ease;
+  box-shadow: 0 1px 2px rgba(217, 119, 87, 0.28);
+  transition: background 0.2s var(--ease-soft), border-color 0.2s var(--ease-soft),
+    color 0.2s var(--ease-soft), box-shadow 0.2s var(--ease-soft), transform 0.2s var(--ease-out);
 }
 
 .analyze:hover:not(:disabled),
 .copy-latex:hover {
   border-color: #c4623f;
   background: #c4623f;
+  transform: translateY(-1px);
+  box-shadow: 0 1px 3px rgba(217, 119, 87, 0.3), 0 8px 16px -9px rgba(217, 119, 87, 0.7);
+}
+
+.analyze:active:not(:disabled),
+.copy-latex:active {
+  transform: translateY(0);
+  box-shadow: 0 1px 2px rgba(217, 119, 87, 0.28);
 }
 
 /* 分析进行中，其余题目的入口置灰 */
@@ -553,12 +661,13 @@ onBeforeUnmount(() => {
   border-color: var(--c-border);
   background: var(--c-light-gray);
   color: var(--c-mid-gray);
+  box-shadow: none;
   cursor: not-allowed;
 }
 
 .mini-spinner {
-  width: 13px;
-  height: 13px;
+  width: 11px;
+  height: 11px;
   border: 2px solid rgba(255, 255, 255, 0.45);
   border-top-color: currentColor;
   border-radius: 50%;
@@ -577,19 +686,22 @@ onBeforeUnmount(() => {
   top: calc(var(--head-h) + 8px);
   margin-top: calc(var(--head-h) + var(--head-gap));
   max-height: calc(100vh - 160px);
-  overflow-y: auto;
-  padding: 22px 24px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding: 20px 0 16px;
   border: 1px solid var(--c-border);
   border-radius: var(--radius-lg);
   background: var(--c-surface);
-  box-shadow: 0 12px 32px rgba(20, 20, 19, 0.05);
+  box-shadow: var(--shadow-md), var(--inset-top);
 }
 
 .panel-head {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding-bottom: 12px;
+  flex: none;
+  padding: 0 24px 12px;
   margin-bottom: 14px;
   border-bottom: 1px solid var(--c-border);
 }
@@ -602,11 +714,14 @@ onBeforeUnmount(() => {
   font-family: var(--font-heading);
   font-size: 12px;
   font-weight: 600;
+  letter-spacing: 0.01em;
+  box-shadow: inset 0 0 0 1px rgba(217, 119, 87, 0.16);
 }
 
 .panel-q {
   font-family: var(--font-heading);
   font-size: 12px;
+  font-variant-numeric: tabular-nums;
   color: var(--c-mid-gray);
 }
 
@@ -624,20 +739,83 @@ onBeforeUnmount(() => {
   background: var(--c-surface);
   color: var(--c-mid-gray);
   cursor: pointer;
-  transition: border-color 0.18s ease, background 0.18s ease, color 0.18s ease;
+  transition: border-color 0.2s var(--ease-soft), background 0.2s var(--ease-soft),
+    color 0.2s var(--ease-soft), box-shadow 0.2s var(--ease-soft);
 }
 
 .panel-close:hover {
-  border-color: var(--c-orange);
+  border-color: rgba(217, 119, 87, 0.55);
   background: rgba(217, 119, 87, 0.08);
   color: var(--c-orange);
+  box-shadow: var(--shadow-xs);
 }
 
+/* 面板正文：可点击插入光标就地编辑，只滚动正文、头部与底部按钮常驻 */
 .panel-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 0 24px;
+  border-radius: var(--radius-sm);
   font-family: var(--font-body);
   font-size: 14px;
   line-height: 1.85;
   word-break: break-word;
+}
+
+.panel-body:focus {
+  outline: none;
+  box-shadow: inset 0 0 0 1px rgba(217, 119, 87, 0.22);
+}
+
+/* 面板底部：存入题库入口 */
+.panel-foot {
+  flex: none;
+  display: flex;
+  justify-content: flex-end;
+  padding: 14px 24px 0;
+  margin-top: 12px;
+  border-top: 1px solid var(--c-border);
+}
+
+.save-bank {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 32px;
+  padding: 0 18px;
+  border: 1px solid var(--c-orange);
+  border-radius: 999px;
+  background: var(--c-orange);
+  color: #ffffff;
+  font-family: var(--font-heading);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  box-shadow: 0 1px 2px rgba(217, 119, 87, 0.28);
+  transition: background 0.2s var(--ease-soft), border-color 0.2s var(--ease-soft),
+    color 0.2s var(--ease-soft), box-shadow 0.2s var(--ease-soft), transform 0.2s var(--ease-out);
+}
+
+.save-bank:hover:not(:disabled) {
+  border-color: #c4623f;
+  background: #c4623f;
+  transform: translateY(-1px);
+  box-shadow: 0 1px 3px rgba(217, 119, 87, 0.3), 0 8px 16px -9px rgba(217, 119, 87, 0.7);
+}
+
+.save-bank:active:not(:disabled) {
+  transform: translateY(0);
+  box-shadow: 0 1px 2px rgba(217, 119, 87, 0.28);
+}
+
+/* 已入库或正在入库：置灰不可再点，避免同一题重复写入 */
+.save-bank:disabled {
+  border-color: var(--c-border);
+  background: var(--c-light-gray);
+  color: var(--c-mid-gray);
+  box-shadow: none;
+  cursor: not-allowed;
 }
 
 .panel-body :deep(h1),
@@ -679,9 +857,23 @@ onBeforeUnmount(() => {
 
 .panel-body :deep(th),
 .panel-body :deep(td) {
-  padding: 6px 10px;
+  padding: 7px 10px;
   border: 1px solid var(--c-border);
   text-align: left;
+}
+
+.panel-body :deep(th) {
+  background: var(--c-subtle);
+  font-family: var(--font-heading);
+  font-weight: 600;
+}
+
+.panel-body :deep(tbody tr:nth-child(even)) {
+  background: rgba(250, 249, 245, 0.6);
+}
+
+.panel-body :deep(td) {
+  font-variant-numeric: tabular-nums;
 }
 
 .panel-body :deep(code) {
@@ -743,6 +935,7 @@ onBeforeUnmount(() => {
   height: 22px;
   border: 2px solid var(--c-light-gray);
   border-top-color: var(--c-orange);
+  border-right-color: rgba(217, 119, 87, 0.4);
   border-radius: 50%;
   animation: spin 0.8s linear infinite;
 }
@@ -787,6 +980,20 @@ onBeforeUnmount(() => {
   border: 1px solid var(--c-border);
   font-family: var(--font-body);
   font-size: 14px;
+  font-variant-numeric: tabular-nums;
+}
+
+:deep(.blk-table th) {
+  padding: 8px 12px;
+  border: 1px solid var(--c-border);
+  background: var(--c-subtle);
+  font-family: var(--font-heading);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+:deep(.blk-table tr:nth-child(even) td) {
+  background: rgba(250, 249, 245, 0.6);
 }
 
 :deep(.blk-image) {
@@ -796,6 +1003,8 @@ onBeforeUnmount(() => {
 :deep(.blk-image img) {
   max-width: 100%;
   border-radius: var(--radius-sm);
+  border: 1px solid var(--c-border);
+  box-shadow: var(--shadow-xs);
 }
 
 :deep(.blk-equation) {
