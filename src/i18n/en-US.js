@@ -4,20 +4,38 @@ export default {
   },
   nav: {
     section: 'Workspace',
-    import: 'Import Questions',
+    import: 'Import New File',
     recent: 'Recent Files',
     search: 'Search Bank',
+    compose: 'Paper Builder',
+    resources: 'My Resources',
     language: 'Language',
-    settings: 'Settings',
-    account: 'Not signed in'
+    theme: 'Theme',
+    themeDark: 'Switch to dark',
+    themeLight: 'Switch to light',
+    account: 'Not signed in',
+    portal: 'Portal Home',
+    upgrade: 'Upgrade Plan',
+    orders: 'My Orders',
+    support: 'Help & Feedback'
   },
   lang: {
     zh: '中文',
     en: 'EN'
   },
+  resources: {
+    tabs: {
+      files: 'My Files',
+      papers: 'My Papers',
+      questions: 'My Questions'
+    },
+    total: '{total} files in total',
+    empty: 'No files yet — start from "Import New File"',
+    needLogin: 'Sign in to view your files',
+    soon: 'This tab is coming soon'
+  },
   tasks: {
     list: 'Recent Files',
-    detail: 'Task Detail',
     refresh: 'Refresh',
     empty: 'No records yet',
     column: {
@@ -34,7 +52,6 @@ export default {
     }
   },
   import: {
-    title: 'Import Questions',
     subtitle: 'Upload papers, images or documents to extract questions and generate analysis reports',
     drop: {
       title: 'Click to choose a file, or drag and drop it here',
@@ -67,7 +84,6 @@ export default {
     }
   },
   process: {
-    title: 'Question Processing',
     loading: 'Loading parsed result…',
     loadFailed: 'Failed to load the parsed result',
     retry: 'Retry',
@@ -83,12 +99,23 @@ export default {
     copyLatex: 'Copy LaTeX',
     copied: 'LaTeX copied',
     copyFailed: 'Copy failed, please try again',
-    finish: 'Finish',
-    finishTip: 'Unimported questions will not be saved after you finish',
     saveToBank: 'Save to bank',
     saving: 'Saving…',
     saved: 'Saved to bank',
-    saveEmpty: 'No analysis result to save'
+    saveEmpty: 'No analysis result to save',
+    edit: 'Edit',
+    editDone: 'Done',
+    mergeUp: 'Merge up',
+    delete: 'Delete',
+    deleteTip: 'This question will be removed from this page and will not reappear next time; questions already saved to the bank are not deleted',
+    deleteSavedTip: 'This question is already saved; deleting here will not remove the bank record',
+    editSavedTip: 'This question is already saved; edits will not be written back to the bank',
+    mergeSavedTip: 'Merging involves saved questions; the result will not overwrite the bank',
+    splitInFormula: 'Cursor is inside a formula, cannot split here',
+    fmtUnderline: 'Underline',
+    fmtDot: 'Dot',
+    fmtItalic: 'Italic',
+    fmtBold: 'Bold'
   },
   common: {
     confirm: 'Confirm',
@@ -121,7 +148,6 @@ export default {
     errCodeRequired: 'Verification code is required'
   },
   search: {
-    title: 'Search Bank',
     placeholder: 'Describe the questions you need, e.g. "find questions about the Gua-Dou principle"',
     send: 'Send',
     micStart: 'Voice input',

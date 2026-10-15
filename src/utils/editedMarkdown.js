@@ -26,3 +26,44 @@ turndown.addRule('katex', {
 export function toEditedMarkdown(html) {
   return turndown.turndown(html || '').trim()
 }
+
+/**
+ * 题干编辑支持的「下划线 / 着重号」没有对应的 Markdown 语法，
+ * 转换时保留成原始 HTML 片段：题干在题库页由 renderRichMarkdown（html:true）渲染，
+ * <u> 与 <span class="dot"> 都能原样呈现，不会在往返中丢失。
+ * 表格同理——不装 gfm 插件时 Turndown 会把表格拆成逐格文字，这里直接保留原始 HTML。
+ */
+const questionTurndown = new TurndownService({
+  headingStyle: 'atx',
+  bulletListMarker: '-',
+  codeBlockStyle: 'fenced'
+})
+
+questionTurndown.addRule('katex', {
+  filter: (node) => node.nodeName === 'SPAN' && node.classList?.contains('katex'),
+  replacement: (content, node) => {
+    const tex = node.querySelector('annotation[encoding="application/x-tex"]')?.textContent
+    if (!tex) return content
+    return node.closest('.katex-display') ? `\n\n\\[${tex}\\]\n\n` : `\\(${tex}\\)`
+  }
+})
+
+questionTurndown.addRule('underline', {
+  filter: ['u'],
+  replacement: (content) => `<u>${content}</u>`
+})
+
+questionTurndown.addRule('underdot', {
+  filter: (node) => node.nodeName === 'SPAN' && node.classList?.contains('dot'),
+  replacement: (content) => `<span class="dot">${content}</span>`
+})
+
+questionTurndown.addRule('tableHtml', {
+  filter: ['table'],
+  replacement: (content, node) => `\n\n${node.outerHTML.trim()}\n\n`
+})
+
+/** 编辑后的题干 HTML -> Markdown（下划线 / 着重号以 HTML 片段保留） */
+export function toQuestionMarkdown(html) {
+  return questionTurndown.turndown(html || '').trim()
+}

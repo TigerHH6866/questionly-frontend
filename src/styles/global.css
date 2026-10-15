@@ -9,22 +9,38 @@
   --c-mid-gray: #b0aea5;
   --c-light-gray: #e8e6dc;
   --c-orange: #d97757;
+  --c-orange-hover: #c4623f;
+  --c-orange-deep: #b65a3c;
   --c-blue: #6a9bcc;
   --c-green: #788c5d;
+
+  /* 危险态：浅底 + 深字，深色主题下整体换成深底 + 亮字 */
+  --c-danger: #dc2626;
+  --c-danger-bg: #fef2f2;
+  --c-danger-solid: #e5484d;
+
+  /* 覆盖在品牌色实底之上的文字（前景永远保持白） */
+  --c-on-accent: #ffffff;
 
   /* 表面与分隔 */
   --c-surface: #ffffff;
   --c-subtle: #faf9f5;
+  --c-sidebar: #f5f5f5;
   --c-border: #e8e6dc;
   --c-hover: rgba(20, 20, 19, 0.05);
+  --c-backdrop: rgba(20, 20, 19, 0.38);
+
+  /* 页面底色渐变（两端色，深色主题下反相） */
+  --c-body-grad-start: #faf9f5;
+  --c-body-grad-end: #f3f1e8;
 
   /* 光学描边：极淡的墨色线条，只在需要比 --c-border 更轻的接缝处使用 */
   --c-hairline: rgba(20, 20, 19, 0.06);
   --c-hairline-strong: rgba(20, 20, 19, 0.1);
 
-  /* 字体：标题 Poppins / 正文 Lora，中文回落到 macOS 苹方 / Windows 微软雅黑 */
-  --font-heading: 'Poppins', 'PingFang SC', 'Microsoft YaHei', 'Hiragino Sans GB', Arial, sans-serif;
-  --font-body: 'Lora', 'PingFang SC', 'Microsoft YaHei', 'Hiragino Sans GB', Georgia, serif;
+  /* 字体：全部走系统字体，不请求外部字体服务；英文用系统无衬线/衬线，中文回落到 macOS 苹方 / Windows 微软雅黑 */
+  --font-heading: system-ui, -apple-system, 'Segoe UI', 'Helvetica Neue', 'PingFang SC', 'Microsoft YaHei', 'Hiragino Sans GB', Arial, sans-serif;
+  --font-body: Georgia, 'Times New Roman', 'PingFang SC', 'Microsoft YaHei', 'Hiragino Sans GB', serif;
 
   --radius-lg: 20px;
   --radius-md: 14px;
@@ -49,6 +65,52 @@
   --el-border-radius-small: 8px;
 }
 
+/**
+ * 深色主题：只覆盖设计令牌，组件样式一行都不用改。
+ * --c-dark / --c-light 在深色下成对互换 —— 它们在各组件里分别被当作「前景」
+ * 与「反色前景」使用（例如选中的导航项是 --c-dark 作底、--c-light 作字），
+ * 互换之后这类「深底浅字」的组合会自动反相成「浅底深字」。
+ */
+html.dark {
+  /* 让滚动条、表单控件等原生 UI 跟随主题 */
+  color-scheme: dark;
+
+  /* 品牌色略提亮，保证深底上的对比度 */
+  --c-dark: #f0eee6;
+  --c-light: #1c1c1a;
+  --c-mid-gray: #a8a59c;
+  --c-light-gray: #3a3936;
+  --c-orange: #e08a6c;
+  --c-orange-hover: #c97350;
+  --c-orange-deep: #a8543a;
+  --c-blue: #7fa9d6;
+  --c-green: #93a76f;
+
+  --c-danger: #f87171;
+  --c-danger-bg: rgba(220, 38, 38, 0.16);
+  --c-danger-solid: #e5484d;
+
+  --c-surface: #242422;
+  --c-subtle: #1e1e1c;
+  --c-sidebar: #1e1e1c;
+  --c-border: #35342f;
+  --c-hover: rgba(255, 255, 255, 0.07);
+  --c-backdrop: rgba(0, 0, 0, 0.6);
+
+  --c-body-grad-start: #1e1e1c;
+  --c-body-grad-end: #161615;
+
+  --c-hairline: rgba(255, 255, 255, 0.07);
+  --c-hairline-strong: rgba(255, 255, 255, 0.12);
+
+  /* 深底上阴影要更重才能读出层次，顶边高光相应收细 */
+  --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.36), 0 6px 16px -10px rgba(0, 0, 0, 0.6);
+  --shadow-md: 0 1px 3px rgba(0, 0, 0, 0.42), 0 12px 30px -16px rgba(0, 0, 0, 0.66);
+  --shadow-lg: 0 1px 3px rgba(0, 0, 0, 0.46), 0 20px 48px -24px rgba(0, 0, 0, 0.72);
+  --inset-top: inset 0 1px 0 rgba(255, 255, 255, 0.05);
+}
+
 html,
 body,
 #app {
@@ -60,7 +122,7 @@ body,
 body {
   font-family: var(--font-body);
   color: var(--c-dark);
-  background: linear-gradient(160deg, #faf9f5 0%, #f3f1e8 100%);
+  background: linear-gradient(160deg, var(--c-body-grad-start) 0%, var(--c-body-grad-end) 100%);
   overflow: hidden;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
@@ -82,9 +144,17 @@ h6 {
   text-wrap: balance;
 }
 
-/* 衬线正文：Lora 在大字号下需要更松的行距与更细的字距才不显拥挤 */
+/* 正文段落：避免末行只剩孤字，让折行更均匀 */
 p {
   text-wrap: pretty;
+}
+
+/* 着重号：每个字下方一个圆点；处理页编辑与题库页渲染共用同一样式 */
+.dot {
+  text-emphasis: filled dot;
+  -webkit-text-emphasis: filled dot;
+  text-emphasis-position: under;
+  -webkit-text-emphasis-position: under;
 }
 
 button {
@@ -206,7 +276,7 @@ button {
 .el-message-box__btns .el-button--primary {
   border-color: var(--c-orange);
   background: var(--c-orange);
-  color: #ffffff;
+  color: var(--c-on-accent);
 }
 
 .el-message-box__btns .el-button--primary:focus {
@@ -215,7 +285,7 @@ button {
 }
 
 .el-message-box__btns .el-button--primary:hover {
-  border-color: #c4623f;
-  background: #c4623f;
-  color: #ffffff;
+  border-color: var(--c-orange-hover);
+  background: var(--c-orange-hover);
+  color: var(--c-on-accent);
 }

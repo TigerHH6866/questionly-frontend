@@ -1,8 +1,8 @@
 import katex from 'katex'
 import { renderMarkdown, renderInline } from './markdown'
 
-/** 噪声块：页码、页眉页脚，不参与渲染与切分 */
-const NOISE_TYPES = new Set(['page_number', 'page_footer', 'page_header'])
+/** 噪声块：页码、页眉页脚、页边装订线文本（如试卷的「考号/姓名/班级/学校」），不参与渲染与切分 */
+const NOISE_TYPES = new Set(['page_number', 'page_footer', 'page_header', 'page_aside_text'])
 
 /** 主题号：1. / 1) / 1、 / 1． / 1） / 第1题 —— 只有这些才是新题的起点 */
 const MAIN_START_RES = [
@@ -34,8 +34,12 @@ function escapeQuestionMarker(markdown) {
   })
 }
 
-/** 选择题选项标记：A. / A． / A) / A） */
-const OPTION_MARK_RE = /(^|[\s\u3000])([A-DＡ-Ｄ])\s*([.．)）])/g
+/**
+ * 选择题选项标记：A. / A． / A) / A）
+ * 字母前面可能是空白（"A.5 B.6"），也可能是紧邻的中文标点（"（ ）A. …"、"…温室。B. …"），
+ * 所以只排除字母/数字/下划线与左括号，其余一律视为合法边界。
+ */
+const OPTION_MARK_RE = /(^|[^\w（(])([A-DＡ-Ｄ])\s*([.．)）])/g
 
 function toAsciiLetter(ch) {
   const code = ch.charCodeAt(0)
@@ -330,5 +334,92 @@ export function markdownToLatex(markdown) {
         .join('\n\n')
       if (text) parts.push(spansToLatex(text))
     })
+  return parts.join('\n\n')
+}
+
+/** 从 KaTeX 渲染节点取回原始 LaTeX（MathML 的 annotation 里存着源码） */
+function katexSource(node) {
+  return node.querySelector('annotation[encoding="application/x-tex"]')?.textContent || ''
+}
+
+/** 行内节点转 LaTeX：只额外认识编辑产生的下划线 / 着重号 / 斜体 / 加粗 */
+function inlineNodeToLatex(node) {
+  let out = ''
+  node.childNodes.forEach((child) => {
+    if (child.nodeType === 3) {
+      out += plainToLatex(child.nodeValue)
+      return
+    }
+    if (child.nodeType !== 1) return
+    const tag = child.tagName
+    if (child.classList?.contains('katex')) {
+      const tex = katexSource(child)
+      if (tex) out += child.closest('.katex-display') ? '\\[\n' + tex + '\n\\]' : '$' + tex + '$'
+      return
+    }
+    switch (tag) {
+      case 'IMG': {
+        const src = child.getAttribute('src')
+        if (src) out += `\\includegraphics[width=0.6\\linewidth]{${src}}`
+        return
+      }
+      case 'BR':
+        out += '\n'
+        return
+      case 'U':
+        out += `\\underline{${inlineNodeToLatex(child)}}`
+        return
+      case 'EM':
+      case 'I':
+        out += `\\textit{${inlineNodeToLatex(child)}}`
+        return
+      case 'STRONG':
+      case 'B':
+        out += `\\textbf{${inlineNodeToLatex(child)}}`
+        return
+      case 'SPAN':
+        out += child.classList?.contains('dot')
+          ? `\\CJKunderdot{${inlineNodeToLatex(child)}}`
+          : inlineNodeToLatex(child)
+        return
+      default:
+        out += inlineNodeToLatex(child)
+    }
+  })
+  return out
+}
+
+/** 块级节点转 LaTeX：表格 / 公式 / 图片各自成型，其余按行内处理 */
+function blockNodeToLatex(node) {
+  if (node.nodeType === 3) return plainToLatex(node.nodeValue).trim()
+  if (node.nodeType !== 1) return ''
+  const tag = node.tagName
+  const cls = node.classList
+  if (tag === 'TABLE') return tableToLatex(node.outerHTML)
+  if (cls?.contains('blk-table')) return tableToLatex(node.innerHTML)
+  if (cls?.contains('blk-equation')) {
+    const tex = katexSource(node)
+    return tex ? '\\[\n' + tex.trim() + '\n\\]' : ''
+  }
+  if (tag === 'FIGURE' || cls?.contains('blk-image')) {
+    const src = node.querySelector('img')?.getAttribute('src')
+    return src ? `\\includegraphics[width=0.6\\linewidth]{${src}}` : ''
+  }
+  return inlineNodeToLatex(node).trim()
+}
+
+/**
+ * 编辑后的题干 HTML 转 LaTeX。
+ * 只处理编辑产生的行内标记与原有的公式 / 图片 / 表格，其余按普通文本转义，
+ * 输出风格与 questionLatex 保持一致。
+ */
+export function editedHtmlToLatex(html) {
+  if (!html || typeof DOMParser === 'undefined') return ''
+  const doc = new DOMParser().parseFromString(html, 'text/html')
+  const parts = []
+  doc.body.childNodes.forEach((node) => {
+    const chunk = blockNodeToLatex(node)
+    if (chunk) parts.push(chunk)
+  })
   return parts.join('\n\n')
 }

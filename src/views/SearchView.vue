@@ -792,7 +792,7 @@ onBeforeUnmount(() => {
   border: 1px solid var(--c-orange);
   border-radius: 999px;
   background: var(--c-orange);
-  color: #ffffff;
+  color: var(--c-on-accent);
   font-family: var(--font-heading);
   font-size: 11.5px;
   font-weight: 500;
@@ -804,8 +804,8 @@ onBeforeUnmount(() => {
 
 .copy-latex:hover,
 .analyze:hover {
-  border-color: #c4623f;
-  background: #c4623f;
+  border-color: var(--c-orange-hover);
+  background: var(--c-orange-hover);
   transform: translateY(-1px);
   box-shadow: 0 1px 3px rgba(217, 119, 87, 0.3), 0 8px 16px -9px rgba(217, 119, 87, 0.7);
 }
@@ -825,8 +825,8 @@ onBeforeUnmount(() => {
 
 .danger:hover {
   border-color: rgba(220, 38, 38, 0.4);
-  background: #fef2f2;
-  color: #dc2626;
+  background: var(--c-danger-bg);
+  color: var(--c-danger);
   transform: translateY(-1px);
 }
 
@@ -892,7 +892,7 @@ onBeforeUnmount(() => {
 }
 
 .q-body :deep(tbody tr:nth-child(even)) {
-  background: rgba(250, 249, 245, 0.6);
+  background: var(--c-subtle);
 }
 
 .q-body :deep(img) {
@@ -1026,7 +1026,7 @@ onBeforeUnmount(() => {
 .mic.is-on {
   border-color: var(--c-orange);
   background: var(--c-orange);
-  color: #ffffff;
+  color: var(--c-on-accent);
 }
 
 /* 占住输入框的位置，高度与 .chat-input 一致，切换时不跳动 */
@@ -1045,7 +1045,7 @@ onBeforeUnmount(() => {
   width: 9px;
   height: 9px;
   border-radius: 50%;
-  background: #e5484d;
+  background: var(--c-danger-solid);
   animation: recPulse 1.1s var(--ease-soft) infinite;
 }
 
@@ -1104,7 +1104,7 @@ onBeforeUnmount(() => {
   border: 1px solid var(--c-orange);
   border-radius: 999px;
   background: var(--c-orange);
-  color: #ffffff;
+  color: var(--c-on-accent);
   font-family: var(--font-heading);
   font-size: 13px;
   font-weight: 500;
@@ -1115,8 +1115,8 @@ onBeforeUnmount(() => {
 }
 
 .send:hover:not(:disabled) {
-  border-color: #c4623f;
-  background: #c4623f;
+  border-color: var(--c-orange-hover);
+  background: var(--c-orange-hover);
   transform: translateY(-1px);
   box-shadow: 0 1px 3px rgba(217, 119, 87, 0.3), 0 8px 16px -9px rgba(217, 119, 87, 0.7);
 }
@@ -1282,7 +1282,7 @@ onBeforeUnmount(() => {
   border: 1px solid var(--c-orange);
   border-radius: 999px;
   background: var(--c-orange);
-  color: #ffffff;
+  color: var(--c-on-accent);
   font-family: var(--font-heading);
   font-size: 13px;
   font-weight: 500;
@@ -1293,8 +1293,8 @@ onBeforeUnmount(() => {
 }
 
 .save-bank:hover:not(:disabled) {
-  border-color: #c4623f;
-  background: #c4623f;
+  border-color: var(--c-orange-hover);
+  background: var(--c-orange-hover);
   transform: translateY(-1px);
   box-shadow: 0 1px 3px rgba(217, 119, 87, 0.3), 0 8px 16px -9px rgba(217, 119, 87, 0.7);
 }

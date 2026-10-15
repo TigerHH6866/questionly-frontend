@@ -326,6 +326,8 @@ async function start() {
   pollCount = 0
   try {
     const task = await createOcrTask(file.value)
+    // 新任务已入库，广播一次让侧栏「近期文件」立刻刷新，新文件出现在列表首位
+    window.dispatchEvent(new CustomEvent('questionly:recent-refresh'))
     poll(task.id)
   } catch {
     phase.value = 'failed'
@@ -580,7 +582,7 @@ function formatSize(bytes) {
   border: none;
   border-radius: 999px;
   background: var(--c-orange);
-  color: #ffffff;
+  color: var(--c-on-accent);
   font-family: var(--font-heading);
   font-size: 14px;
   font-weight: 500;
@@ -591,7 +593,7 @@ function formatSize(bytes) {
 }
 
 .start:hover {
-  background: #c4623f;
+  background: var(--c-orange-hover);
   transform: translateY(-1px);
   box-shadow: 0 1px 3px rgba(217, 119, 87, 0.32), 0 10px 20px -10px rgba(217, 119, 87, 0.75);
 }

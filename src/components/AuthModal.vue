@@ -217,7 +217,7 @@ async function submit() {
   align-items: center;
   justify-content: center;
   padding: 24px;
-  background: rgba(20, 20, 19, 0.38);
+  background: var(--c-backdrop);
   backdrop-filter: blur(2px);
 }
 
@@ -359,7 +359,7 @@ async function submit() {
 }
 
 .auth-input.is-error {
-  border-color: #d9534f;
+  border-color: var(--c-danger);
 }
 
 .auth-code-row {
@@ -388,7 +388,7 @@ async function submit() {
 .auth-error {
   font-family: var(--font-heading);
   font-size: 11.5px;
-  color: #d9534f;
+  color: var(--c-danger);
 }
 
 .auth-submit {
@@ -397,7 +397,7 @@ async function submit() {
   border: none;
   border-radius: 999px;
   background: var(--c-orange);
-  color: #ffffff;
+  color: var(--c-on-accent);
   font-family: var(--font-heading);
   font-size: 14px;
   font-weight: 600;
@@ -408,7 +408,7 @@ async function submit() {
 }
 
 .auth-submit:hover:not(:disabled) {
-  background: #c4623f;
+  background: var(--c-orange-hover);
   box-shadow: 0 8px 18px -10px rgba(217, 119, 87, 0.6);
 }
 

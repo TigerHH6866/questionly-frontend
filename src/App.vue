@@ -20,7 +20,7 @@
       <nav class="nav">
         <p class="nav-label">{{ t('nav.section') }}</p>
 
-        <router-link :to="lastImportPath" class="nav-item" :class="{ 'is-active': isImport }">
+        <router-link to="/" class="nav-item" :class="{ 'is-active': isImport }">
           <svg class="nav-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true">
             <path
               d="M12 15.5V4m0 0L7.8 8.2M12 4l4.2 4.2M4.5 15.5v2.8A2.2 2.2 0 0 0 6.7 20.5h10.6a2.2 2.2 0 0 0 2.2-2.2v-2.8"
@@ -40,9 +40,35 @@
           </svg>
           <span>{{ t('nav.search') }}</span>
         </router-link>
+
+        <!-- 「沉浸式组卷」为占位入口，功能未实现，暂不跳转 -->
+        <button type="button" class="nav-item">
+          <svg class="nav-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <rect x="4.5" y="3.5" width="15" height="17" rx="2.2" stroke="currentColor" stroke-width="1.6" />
+            <path
+              d="M8.6 8.6h6.8M8.6 12h6.8M8.6 15.4h4"
+              stroke="currentColor"
+              stroke-width="1.6"
+              stroke-linecap="round"
+            />
+          </svg>
+          <span>{{ t('nav.compose') }}</span>
+        </button>
+
+        <router-link to="/resources" class="nav-item" :class="{ 'is-active': isResources }">
+          <svg class="nav-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <path
+              d="M3.8 7.3a2.1 2.1 0 0 1 2.1-2.1h3l1.8 2h7.4a2.1 2.1 0 0 1 2.1 2.1v8.5a2.1 2.1 0 0 1-2.1 2.1H5.9a2.1 2.1 0 0 1-2.1-2.1V7.3Z"
+              stroke="currentColor"
+              stroke-width="1.6"
+              stroke-linejoin="round"
+            />
+          </svg>
+          <span>{{ t('nav.resources') }}</span>
+        </router-link>
       </nav>
 
-      <!-- 近期文件：内联列表，仅展示最近 7 条，点击进入该文件的题目渲染页 -->
+      <!-- 近期文件：内联列表，仅展示最近 10 条，点击进入该文件的题目渲染页 -->
       <section v-if="loggedIn" class="recent">
         <p class="recent-label">{{ t('nav.recent') }}</p>
         <ul class="recent-list">
@@ -92,12 +118,69 @@
               <div class="account-credits">
                 <span class="account-credits-pill">⭐ {{ currentUser?.credits ?? 0 }} {{ t('auth.credits') }}</span>
               </div>
+              <!-- 占位入口：功能未实现，暂不跳转（与侧栏「沉浸式组卷 / 我的资源」同一处理方式） -->
+              <div class="account-menu">
+                <button
+                  v-for="entry in accountEntries"
+                  :key="entry.label"
+                  type="button"
+                  class="account-entry"
+                >
+                  <svg class="entry-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                    <path
+                      :d="entry.path"
+                      stroke="currentColor"
+                      stroke-width="1.6"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                    />
+                  </svg>
+                  <span class="entry-label">{{ t(entry.label) }}</span>
+                  <svg class="entry-arrow" viewBox="0 0 24 24" width="15" height="15" fill="none" aria-hidden="true">
+                    <path
+                      d="m9.6 5.6 6.4 6.4-6.4 6.4"
+                      stroke="currentColor"
+                      stroke-width="1.8"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                    />
+                  </svg>
+                </button>
+              </div>
+
               <button type="button" class="account-logout" @click="logout">{{ t('auth.logout') }}</button>
             </div>
           </transition>
         </div>
 
         <div class="foot-actions">
+          <!-- 主题切换：浅色时显示月亮（点击进入深色），深色时显示太阳 -->
+          <button
+            type="button"
+            class="icon-btn"
+            :title="theme === 'dark' ? t('nav.themeLight') : t('nav.themeDark')"
+            :aria-label="theme === 'dark' ? t('nav.themeLight') : t('nav.themeDark')"
+            @click="toggleTheme"
+          >
+            <svg v-if="theme === 'dark'" viewBox="0 0 24 24" width="16" height="16" fill="none" aria-hidden="true">
+              <circle cx="12" cy="12" r="4.1" stroke="currentColor" stroke-width="1.5" />
+              <path
+                d="M12 2.9v1.9M12 19.2v1.9M4.6 12H2.7M21.3 12h-1.9M6.8 6.8 5.4 5.4M18.6 18.6l-1.4-1.4M17.2 6.8l1.4-1.4M5.4 18.6l1.4-1.4"
+                stroke="currentColor"
+                stroke-width="1.5"
+                stroke-linecap="round"
+              />
+            </svg>
+            <svg v-else viewBox="0 0 24 24" width="16" height="16" fill="none" aria-hidden="true">
+              <path
+                d="M20.6 14.4A8.6 8.6 0 0 1 9.6 3.4a8.6 8.6 0 1 0 11 11Z"
+                stroke="currentColor"
+                stroke-width="1.5"
+                stroke-linejoin="round"
+              />
+            </svg>
+          </button>
+
           <button
             type="button"
             class="icon-btn"
@@ -117,34 +200,22 @@
             </svg>
             <span class="icon-btn-label">{{ locale === 'zh-CN' ? t('lang.zh') : t('lang.en') }}</span>
           </button>
-
-          <button
-            type="button"
-            class="icon-btn"
-            :title="t('nav.settings')"
-            :aria-label="t('nav.settings')"
-          >
-            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" aria-hidden="true">
-              <circle cx="12" cy="12" r="3" stroke="currentColor" stroke-width="1.5" />
-              <path
-                d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2Z"
-                stroke="currentColor"
-                stroke-width="1.5"
-                stroke-linejoin="round"
-              />
-            </svg>
-          </button>
         </div>
       </div>
     </aside>
 
     <main class="main">
       <header class="topbar">
-        <h1 class="page-title">{{ pageTitle }}</h1>
+        <!-- 顶栏左侧插槽：入口页的标签栏等投射到这里（不再有页面标题文案） -->
+        <div ref="topbarLead" class="topbar-lead"></div>
+        <!-- 页面级操作插槽：处理页把文件标题卡片投射到这里，水平居中 -->
+        <div ref="topbarSlot" class="topbar-slot"></div>
       </header>
 
       <div class="page">
-        <router-view />
+        <!-- 以路径为 key：同一组件在不同文件间切换时强制重建，
+             否则实例被复用、onMounted 不再执行，页面会停在上一个文件的解析结果上 -->
+        <router-view :key="route.path" />
       </div>
     </main>
 
@@ -153,14 +224,14 @@
 </template>
 
 <script setup>
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, provide, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import AuthModal from '@/components/AuthModal.vue'
 import { pageOcrTasks } from '@/api/ocr'
 import { setLocale } from '@/i18n'
 import { clearAuth, currentUser, isLoggedIn } from '@/utils/auth'
-import { lastImportPath } from '@/utils/importSession'
+import { theme, toggleTheme } from '@/utils/theme'
 
 const route = useRoute()
 const router = useRouter()
@@ -171,6 +242,23 @@ const authTab = ref('signin')
 const accountOpen = ref(false)
 
 const displayName = computed(() => currentUser.value?.nickname || currentUser.value?.email || t('nav.account'))
+
+/** 账号卡片里的入口：目前只是占位展示，未接任何路由与动作 */
+const accountEntries = [
+  {
+    label: 'nav.portal',
+    path: 'M4 10.6 12 4.2l8 6.4V19a1.6 1.6 0 0 1-1.6 1.6H5.6A1.6 1.6 0 0 1 4 19v-8.4Z'
+  },
+  { label: 'nav.upgrade', path: 'M12 19.6V5.6m0 0-5.2 5.2M12 5.6l5.2 5.2' },
+  {
+    label: 'nav.orders',
+    path: 'M5.8 5.4A1.6 1.6 0 0 1 7.4 3.8h9.2a1.6 1.6 0 0 1 1.6 1.6v15.2l-3.1-1.9-3.1 1.9-3.1-1.9-3.1 1.9V5.4ZM9.2 9h5.6M9.2 12.6h5.6'
+  },
+  {
+    label: 'nav.support',
+    path: 'M4.6 6.9A2.6 2.6 0 0 1 7.2 4.3h9.6a2.6 2.6 0 0 1 2.6 2.6v6a2.6 2.6 0 0 1-2.6 2.6H10l-4.2 3.4v-3.4H7.2a2.6 2.6 0 0 1-2.6-2.6v-6Z'
+  }
+]
 
 /** 未登录点击头像 → 登录弹窗；已登录 → 账号浮层 */
 function toggleAccount() {
@@ -203,8 +291,17 @@ function onUnauthorized() {
 /** 登录态（currentUser 为响应式，登录/退出都会触发重算） */
 const loggedIn = computed(() => Boolean(currentUser.value) && isLoggedIn())
 
-/** 侧栏「近期文件」只展示最近 7 条 */
-const RECENT_SIZE = 7
+/** 顶栏操作插槽：用 ref 暴露节点，供子页面 Teleport 投射内容（用 ref 而非选择器，
+ *  因为子页面挂载时整棵树还没插入 document，选择器查不到） */
+const topbarSlot = ref(null)
+provide('topbarSlot', topbarSlot)
+
+/** 顶栏左侧插槽：入口页的标签栏投射到这里，与原来的页标题同一位置 */
+const topbarLead = ref(null)
+provide('topbarLead', topbarLead)
+
+/** 侧栏「近期文件」展示最近 10 条 */
+const RECENT_SIZE = 10
 const recentTasks = ref([])
 
 /** 拉取最近文件；未登录时清空，避免触发 401 提示 */
@@ -238,25 +335,21 @@ watch(currentUser, loadRecent)
 onMounted(() => {
   document.addEventListener('click', onDocumentClick)
   window.addEventListener('questionly:unauthorized', onUnauthorized)
+  // 新建 OCR 任务后由导入页广播，让新文件立刻出现在列表首位
+  window.addEventListener('questionly:recent-refresh', loadRecent)
   loadRecent()
 })
 
 onBeforeUnmount(() => {
   document.removeEventListener('click', onDocumentClick)
   window.removeEventListener('questionly:unauthorized', onUnauthorized)
+  window.removeEventListener('questionly:recent-refresh', loadRecent)
 })
 
-/** 题目处理页属于「导入题目」这条流程，导航栏焦点保持在导入题目 */
-const isImport = computed(() => route.path === '/' || route.path.endsWith('/process'))
+/** 「导入新文件」只在空白上传页高亮；文件处理页的焦点由侧栏的近期文件列表体现 */
+const isImport = computed(() => route.path === '/')
 const isSearch = computed(() => route.path.startsWith('/search'))
-
-const pageTitle = computed(() => {
-  if (isSearch.value) return t('search.title')
-  if (route.path.endsWith('/process')) return t('process.title')
-  if (route.path === '/tasks') return t('tasks.list')
-  if (route.path.startsWith('/tasks/')) return t('tasks.detail')
-  return t('import.title')
-})
+const isResources = computed(() => route.path.startsWith('/resources'))
 
 function toggleLocale() {
   setLocale(locale.value === 'zh-CN' ? 'en-US' : 'zh-CN')
@@ -276,11 +369,11 @@ function toggleLocale() {
 .sidebar {
   display: flex;
   flex-direction: column;
-  flex: 0 0 232px;
+  flex: 0 0 244px;
   /* 关键：不设 0 时，内部 nowrap 的长文件名会顶开 min-content 宽度，把侧栏撑到几百 px */
   min-width: 0;
   padding: 24px 16px 16px;
-  background: #f5f5f5;
+  background: var(--c-sidebar);
   border: 1px solid var(--c-border);
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-md), var(--inset-top);
@@ -333,12 +426,17 @@ function toggleLocale() {
   display: flex;
   align-items: center;
   gap: 11px;
+  width: 100%;
   padding: 10px 12px;
+  border: none;
   border-radius: var(--radius-sm);
+  background: transparent;
   font-family: var(--font-heading);
   font-size: 14px;
   color: var(--c-dark);
+  text-align: left;
   text-decoration: none;
+  cursor: pointer;
   transition: background 0.2s var(--ease-soft), color 0.2s var(--ease-soft),
     box-shadow 0.2s var(--ease-soft);
 }
@@ -351,6 +449,13 @@ function toggleLocale() {
   background: var(--c-dark);
   color: var(--c-light);
   box-shadow: var(--shadow-xs);
+}
+
+/* 深色下选中项改用「比侧栏略亮的面」，而不是跟着令牌反相成一整条纯白药丸：
+   白底深字在深色侧栏上过于刺眼，与周围层级读不到一起 */
+html.dark .nav-item.is-active {
+  background: var(--c-light-gray);
+  color: var(--c-dark);
 }
 
 .nav-icon {
@@ -455,8 +560,8 @@ function toggleLocale() {
   padding: 0;
   border: none;
   border-radius: 50%;
-  background: linear-gradient(135deg, var(--c-orange), #b65a3c);
-  color: #ffffff;
+  background: linear-gradient(135deg, var(--c-orange), var(--c-orange-deep));
+  color: var(--c-on-accent);
   cursor: pointer;
   overflow: hidden;
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.35),
@@ -489,7 +594,7 @@ function toggleLocale() {
   display: flex;
   flex-direction: column;
   gap: 10px;
-  width: 200px;
+  width: 236px;
   padding: 14px;
   background: var(--c-surface);
   border: 1px solid var(--c-border);
@@ -535,6 +640,71 @@ function toggleLocale() {
   font-weight: 600;
 }
 
+/* 账号卡片入口区：与上方账号信息用一条分隔线断开 */
+.account-menu {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: 2px;
+  padding-top: 10px;
+  border-top: 1px solid var(--c-border);
+}
+
+.account-entry {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 9px 8px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--c-dark);
+  font-family: var(--font-heading);
+  font-size: 13.5px;
+  font-weight: 500;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.18s var(--ease-soft), color 0.18s var(--ease-soft);
+}
+
+.account-entry:hover {
+  background: var(--c-hover);
+}
+
+.entry-icon {
+  flex: none;
+  width: 17px;
+  height: 17px;
+  color: var(--c-mid-gray);
+  transition: color 0.18s var(--ease-soft);
+}
+
+.account-entry:hover .entry-icon {
+  color: var(--c-orange);
+}
+
+.entry-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 右侧指示符：hover 时轻微右移，暗示「可进入」 */
+.entry-arrow {
+  flex: none;
+  margin-left: auto;
+  color: var(--c-mid-gray);
+  opacity: 0.75;
+  transition: transform 0.18s var(--ease-out), opacity 0.18s var(--ease-soft);
+}
+
+.account-entry:hover .entry-arrow {
+  opacity: 1;
+  transform: translateX(2px);
+}
+
 .account-logout {
   height: 32px;
   border: 1px solid var(--c-border);
@@ -550,9 +720,9 @@ function toggleLocale() {
 }
 
 .account-logout:hover {
-  background: #fef2f2;
+  background: var(--c-danger-bg);
   border-color: rgba(220, 38, 38, 0.28);
-  color: #dc2626;
+  color: var(--c-danger);
 }
 
 .pop-enter-active,
@@ -616,25 +786,46 @@ function toggleLocale() {
   min-width: 0;
 }
 
-/* 高度取 80px，使标题垂直中线与侧栏品牌行（24px 上内边距 + 32px 图标）对齐 */
+/* 高度取 80px，让顶栏内容的垂直中线与侧栏品牌行（24px 上内边距 + 32px 图标）对齐 */
 .topbar {
+  position: relative;
   display: flex;
   align-items: center;
   height: 80px;
   padding: 0 4px 0 8px;
 }
 
-.page-title {
-  font-size: 19px;
-  font-weight: 600;
-  letter-spacing: -0.015em;
-  text-wrap: balance;
+/* 顶栏左侧：投射进来的标签栏等操作元素，靠左贴齐（原页面标题的位置） */
+.topbar-lead {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+
+/* 顶栏整体操作区：按整行（即 .page 的内容区）定位并水平居中，
+   这样投射进来的卡片与页面居中排布的题目区域共用同一中轴线。
+   pointer-events 放开给投射内容自身，避免挡住左侧插槽。 */
+.topbar-slot {
+  position: absolute;
+  inset: 0 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
+  pointer-events: none;
+}
+
+.topbar-slot > * {
+  pointer-events: auto;
 }
 
 .page {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
+  /* 滚动条槽两侧对称预留：内容区中心与整行中心重合（顶栏卡片的对齐基准），
+     同时内容宽度不随滚动条出现 / 消失而跳动 */
+  scrollbar-gutter: stable both-edges;
   padding: 0 8px 32px;
   display: flex;
   flex-direction: column;

@@ -4,20 +4,38 @@ export default {
   },
   nav: {
     section: '工作区',
-    import: '导入题目',
+    import: '导入新文件',
     recent: '近期文件',
     search: '搜索题库',
+    compose: '沉浸式组卷',
+    resources: '我的资源',
     language: '语言',
-    settings: '设置',
-    account: '未登录'
+    theme: '主题',
+    themeDark: '切换为深色',
+    themeLight: '切换为浅色',
+    account: '未登录',
+    portal: '门户主页',
+    upgrade: '升级套餐',
+    orders: '我的订单',
+    support: '帮助与反馈'
   },
   lang: {
     zh: '中文',
     en: 'EN'
   },
+  resources: {
+    tabs: {
+      files: '我的文件',
+      papers: '我的试卷',
+      questions: '我的题目'
+    },
+    total: '共 {total} 个文件',
+    empty: '还没有文件，先从「导入新文件」开始',
+    needLogin: '登录后可查看自己的文件',
+    soon: '该标签页正在建设中'
+  },
   tasks: {
     list: '近期文件',
-    detail: '任务详情',
     refresh: '刷新',
     empty: '暂无记录',
     column: {
@@ -34,11 +52,10 @@ export default {
     }
   },
   import: {
-    title: '导入题目',
-    subtitle: '上传试卷、图片或文档，自动识别题目并生成分析报告',
+    subtitle: '上传文档或图片，Ai自动识别题目并分析入库',
     drop: {
       title: '点击选择文件，或将文件拖拽到此处',
-      hint: '支持 png / jpg / jpeg / doc / docx / pdf，单文件不超过 100MB；也可直接 Ctrl+V 粘贴截图或文件'
+      hint: '支持 图片 / PDF  / Word / PPT，最大100MB 100页；也可直接 Ctrl+V 粘贴截图或文件'
     },
     start: '开始识别处理',
     waiting: '正在识别处理文档…',
@@ -67,7 +84,6 @@ export default {
     }
   },
   process: {
-    title: '题目处理',
     loading: '正在加载解析结果…',
     loadFailed: '解析结果加载失败',
     retry: '重试',
@@ -83,12 +99,23 @@ export default {
     copyLatex: '复制 LaTeX',
     copied: '已复制 LaTeX 代码',
     copyFailed: '复制失败，请重试',
-    finish: '结束',
-    finishTip: '结束后未入库题目将不会保存',
     saveToBank: '存入题库',
     saving: '保存中…',
     saved: '已存入题库',
-    saveEmpty: '暂无可保存的分析结果'
+    saveEmpty: '暂无可保存的分析结果',
+    edit: '编辑',
+    editDone: '完成',
+    mergeUp: '并入上方',
+    delete: '删除',
+    deleteTip: '本题将从处理页移除，重新进入文件不再显示；不删除题库中已入库的题目',
+    deleteSavedTip: '该题已入库，这里的删除不会移除题库中的记录',
+    editSavedTip: '该题已入库，编辑结果不会回写到题库',
+    mergeSavedTip: '合并涉及已入库的题目，合并结果不会覆盖题库中的原题',
+    splitInFormula: '光标在公式内，无法在此处拆分',
+    fmtUnderline: '下划线',
+    fmtDot: '着重号',
+    fmtItalic: '斜体',
+    fmtBold: '加粗'
   },
   common: {
     confirm: '确定',
@@ -121,7 +148,6 @@ export default {
     errCodeRequired: '请输入验证码'
   },
   search: {
-    title: '搜索题库',
     placeholder: '用自然语言描述你要找的题目，如「找一下瓜豆原理的题目」',
     send: '发送',
     micStart: '语音输入',
