@@ -47,28 +47,60 @@ function toAsciiLetter(ch) {
 }
 
 /**
- * 选择题选项常被 OCR 挤在同一行（如 "A.5 B.6 C.8 D.9"），
- * 在选项标记前补段落换行，让每个选项独占一行。
+ * 短选项并成一段的宽度上限（相对单位：行内公式记 2，中文记 1，其余记 0.5）。
+ * 超过该值的选项属于长文本（语文/英语阅读等），源文件本就是每题一行，保持拆行。
+ */
+const MAX_INLINE_OPTION_WIDTH = 16
+
+/** 估算一个选项的渲染宽度，用于判断是「短选项」还是「长文本选项」 */
+function estimateOptionWidth(text) {
+  // 行内公式统一折算成 2 个单位，避免 LaTeX 源码长度干扰判断
+  const plain = String(text ?? '').replace(/\$[^$\n]*\$/g, '\u0002')
+  let width = 0
+  for (const ch of plain) {
+    if (ch === '\u0002') width += 2
+    else if (ch.charCodeAt(0) > 0x2e80) width += 1
+    else width += 0.5
+  }
+  return width
+}
+
+/**
+ * 选择题选项的排布（挤在一行 / 两两一行 / 每题一行）由源文件人工决定，
+ * OCR 给出的换行并不可靠（同一行会被拆成多段，多行也会被并成一行），
+ * 因此分两种情况处理：
+ * 短选项把题干与选项分成两段，选项单独成组交给渲染层按宽度自适应排布；
+ * 长文本选项仍保持每题一行，避免整段文字挤在一起、断句落在选项中间。
  * 仅在字母按 A→B→C→D 递增时才处理，避免把正文中的普通字母误判成选项。
+ *
+ * 返回 { text, head, options }：text 是完整 markdown（供分析接口与 LaTeX 使用），
+ * head 是题干，options 是短选项组的选项数组（长文本选项时为 null）。
  */
 function breakOptions(markdown) {
-  if (!markdown) return markdown
+  if (!markdown) return { text: markdown, head: '', options: null }
   const marks = []
   OPTION_MARK_RE.lastIndex = 0
   let match
   while ((match = OPTION_MARK_RE.exec(markdown)) !== null) {
     marks.push({ at: match.index + match[1].length, letter: toAsciiLetter(match[2]) })
   }
-  if (marks.length < 2) return markdown
+  if (marks.length < 2) return { text: markdown, head: '', options: null }
   for (let i = 1; i < marks.length; i += 1) {
-    if (marks[i].letter <= marks[i - 1].letter) return markdown
+    if (marks[i].letter <= marks[i - 1].letter) return { text: markdown, head: '', options: null }
   }
-  let out = markdown
-  for (let i = marks.length - 1; i >= 0; i -= 1) {
-    const before = out.slice(0, marks[i].at).replace(/[\s\u3000]+$/, '')
-    out = before + (before ? '\n\n' : '') + out.slice(marks[i].at)
+  const head = markdown.slice(0, marks[0].at).trim()
+  const options = marks.map((mark, i) => {
+    const end = i + 1 < marks.length ? marks[i + 1].at : markdown.length
+    return markdown.slice(mark.at, end).trim()
+  })
+  if (options.some((option) => estimateOptionWidth(option) > MAX_INLINE_OPTION_WIDTH)) {
+    return { text: [head, ...options].filter(Boolean).join('\n\n'), head, options: null }
   }
-  return out
+  return {
+    text: head + (head ? '\n\n' : '') + options.join('\u3000'),
+    head,
+    options
+  }
 }
 
 /** 把块内 span 拼成 markdown 文本，行内公式还原成 $...$ 交给 markdown 渲染 */
@@ -101,7 +133,7 @@ function normalize(block) {
     case 'image':
       return { type, imgPath: imagePathOf(block) }
     default:
-      return { type, text: breakOptions(spansToMarkdown(block)) }
+      return { type, ...breakOptions(spansToMarkdown(block)) }
   }
 }
 
@@ -192,8 +224,18 @@ export function renderBlock(block, imagesBase) {
       return block.imgPath
         ? `<figure class="blk-image"><img src="${imagesBase}${block.imgPath}" alt="" loading="lazy"></figure>`
         : ''
-    default:
-      return block.text ? `<div class="blk-para">${renderMarkdown(block.text)}</div>` : ''
+    default: {
+      if (!block.text) return ''
+      // 短选项组用 flex 容器渲染：每行选项两端顶格，间距随行宽自适应
+      if (!block.options || block.options.length < 2) {
+        return `<div class="blk-para">${renderMarkdown(block.text)}</div>`
+      }
+      const head = block.head ? `<div class="blk-para">${renderMarkdown(block.head)}</div>` : ''
+      const items = block.options
+        .map((option) => `<span class="opt-item">${renderInline(option)}</span>`)
+        .join('')
+      return `${head}<div class="blk-para opt-grid">${items}</div>`
+    }
   }
 }
 

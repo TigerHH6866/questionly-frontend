@@ -19,9 +19,14 @@ export function saveQuestion(title, details, ocrTaskId, ocrIndex) {
   return http.post('/questions/save', { title, details, ocrTaskId, ocrIndex })
 }
 
-/** 某份文件下已入库的题号，进入文件时用于回显每道题的入库状态 */
-export function getImportedIndexes(taskId) {
+/** 某份文件下已入库的题目（题号 + 题目 ID），进入文件时用于回显每道题的入库状态 */
+export function getImportedQuestions(taskId) {
   return http.get('/questions/imported', { params: { taskId } })
+}
+
+/** 按题目 ID 取题库详情，用于已入库题目展示「查看入库信息」 */
+export function getQuestionDetail(id) {
+  return http.get(`/questions/${id}`)
 }
 
 /**

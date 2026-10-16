@@ -93,6 +93,7 @@ export default {
     analyze: 'AI Analyze',
     analyzing: 'Analyzing',
     viewAnalysis: 'View AI Analysis',
+    bankInfo: 'View bank info',
     panelTitle: 'AI Analysis',
     panelHint: 'Feel free to edit the content and save',
     close: 'Close',
@@ -120,6 +121,40 @@ export default {
   common: {
     confirm: 'Confirm',
     cancel: 'Cancel'
+  },
+  compose: {
+    back: 'Back',
+    new: 'New paper',
+    newHint: 'Search questions from your bank and typeset a new paper',
+    total: '{total} papers',
+    empty: 'No papers yet. Click the card above to create one.',
+    needLogin: 'Sign in to see your papers',
+    loadFailed: 'Failed to load the paper',
+    search: {
+      title: 'Search questions',
+      placeholder: 'Describe the questions you need, e.g. "Gua-Dou principle"',
+      button: 'Search',
+      insert: 'Insert',
+      hint: 'Search your question bank and insert questions into the paper',
+      empty: 'No matching questions'
+    },
+    doc: {
+      placeholder: 'Search on the left and click "Insert", or start typing here'
+    },
+    options: {
+      paperSize: 'Paper size',
+      zoom: 'Zoom',
+      zoomFit: 'Fit',
+      title: 'Title',
+      titlePlaceholder: 'Paper title',
+      titleRequired: 'Please enter a title',
+      untitled: 'Untitled paper',
+      tags: 'Tags',
+      tagsHint: 'Comma separated, e.g. Math,Midterm',
+      save: 'Save',
+      saving: 'Saving…',
+      saved: 'Saved'
+    }
   },
   auth: {
     close: 'Close',

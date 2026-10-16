@@ -90,9 +90,10 @@ export default {
     total: '共 {total} 题',
     questionLabel: '第 {n} 题',
     empty: '未识别到题目',
-    analyze: 'AI 分析',
+    analyze: 'AI 分析入库',
     analyzing: '分析中',
     viewAnalysis: '查看 AI 分析结果',
+    bankInfo: '查看入库信息',
     panelTitle: 'AI 分析结果',
     panelHint: '您可以自由修改内容并保存',
     close: '关闭',
@@ -120,6 +121,40 @@ export default {
   common: {
     confirm: '确定',
     cancel: '取消'
+  },
+  compose: {
+    back: '返回',
+    new: '新建组卷',
+    newHint: '从题库搜索题目，排版生成一份新试卷',
+    total: '共 {total} 份试卷',
+    empty: '还没有试卷，点击上方卡片新建一份',
+    needLogin: '登录后可查看自己的试卷',
+    loadFailed: '试卷加载失败',
+    search: {
+      title: '搜索题目',
+      placeholder: '描述你要找的题目，如「瓜豆原理」',
+      button: '搜索',
+      insert: '插入',
+      hint: '输入关键词，从题库中搜索题目插入试卷',
+      empty: '没有找到匹配的题目'
+    },
+    doc: {
+      placeholder: '在左侧搜索题目并点击「插入」，或直接在这里输入内容'
+    },
+    options: {
+      paperSize: '版面',
+      zoom: '显示比例',
+      zoomFit: '适配',
+      title: '试卷标题',
+      titlePlaceholder: '请输入试卷标题',
+      titleRequired: '请输入试卷标题',
+      untitled: '未命名试卷',
+      tags: '标签',
+      tagsHint: '用逗号分隔，如 数学,期中',
+      save: '保存',
+      saving: '保存中…',
+      saved: '已保存'
+    }
   },
   auth: {
     close: '关闭',

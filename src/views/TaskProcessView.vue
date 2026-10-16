@@ -85,14 +85,28 @@
                     class="analyze"
                     type="button"
                     :disabled="busy && analyzingIndex !== q.index"
-                    @click="analyze(q.index)"
+                    @click="q.saved ? viewBankInfo(q.index) : analyze(q.index)"
                   >
                     <span v-if="analyzingIndex === q.index" class="mini-spinner" aria-hidden="true"></span>
+                    <!-- 已入库：文案左侧加绿色圆圈打勾 -->
+                    <svg v-else-if="q.saved" class="bank-check" viewBox="0 0 24 24" width="14" height="14" aria-hidden="true">
+                      <circle cx="12" cy="12" r="10" fill="#16a34a" />
+                      <path
+                        d="M7.4 12.5l3 3 6.2-6.6"
+                        fill="none"
+                        stroke="#fff"
+                        stroke-width="2"
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                      />
+                    </svg>
                     {{ analyzingIndex === q.index
                       ? t('process.analyzing')
-                      : q.analyzed
-                        ? t('process.viewAnalysis')
-                        : t('process.analyze') }}
+                      : q.saved
+                        ? t('process.bankInfo')
+                        : q.analyzed
+                          ? t('process.viewAnalysis')
+                          : t('process.analyze') }}
                   </button>
                 </div>
               </div>
@@ -184,11 +198,11 @@
 </template>
 
 <script setup>
-import { computed, inject, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, inject, nextTick, onBeforeUnmount, onMounted, onUpdated, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { getTaskResult, saveTaskDraft } from '@/api/ocr'
-import { analyzeQuestion, saveQuestion, getImportedIndexes } from '@/api/question'
+import { analyzeQuestion, saveQuestion, getImportedQuestions, getQuestionDetail } from '@/api/question'
 import {
   toBlocks,
   splitQuestions,
@@ -235,6 +249,9 @@ let observer = null
 
 /** 已分析过的题目结果缓存：题号 -> Markdown */
 const analysisCache = new Map()
+
+/** 已入库题目的入库信息缓存：题号 -> 题库中的 details */
+const bankCache = new Map()
 
 /** 用户在面板里就地编辑后的 HTML 缓存：题号 -> HTML（未编辑过的题号不在其中） */
 const editCache = new Map()
@@ -298,7 +315,7 @@ function nextOcrIndex() {
 let draftTimer = null
 
 /**
- * 草稿内容：只记录「题目顺序 + 每题由哪些原始题拼成 + 题干编辑快照」。
+ * 草稿内容：只记录「题目顺序 + 每题由哪些原始题拼成 + 题干编辑快照 + 入库题目 ID」。
  * 未编辑过的题干仍从 full.md 的原始块取，因此草稿不会污染解析结果。
  */
 function draftPayload() {
@@ -308,7 +325,8 @@ function draftPayload() {
     items: questions.value.map((question) => ({
       i: question.index,
       s: question.source,
-      h: question.editedHtml || ''
+      h: question.editedHtml || '',
+      qid: question.questionId || ''
     }))
   })
 }
@@ -357,6 +375,8 @@ function applyDraft(raw, parsed) {
       blocks: source.flatMap((index) => blocksOf.get(index) || []),
       source,
       editedHtml: item.h || '',
+      // 该题已入库时的题库题目 ID，打开文件时校验是否仍有效
+      questionId: item.qid || null,
       html: '',
       active: false,
       analyzed: false,
@@ -420,8 +440,11 @@ async function saveToBank() {
 
   saving.value = true
   try {
-    await saveQuestion(markdownOf(question), details, props.id, question.index)
+    // 返回题目在题库中的雪花 ID（已入库则返回已有 ID），写进模型并落草稿
+    const id = await saveQuestion(markdownOf(question), details, props.id, question.index)
+    question.questionId = id
     question.saved = true
+    markDraftDirty()
     ElMessage.success(t('process.saved'))
   } catch {
     // 失败提示由 http 拦截器统一弹出
@@ -431,18 +454,72 @@ async function saveToBank() {
 }
 
 /**
- * 回显入库状态：拉取该文件已入库的题号，把对应题目标记为已保存。
- * 只置真不清除（避免与本次会话内的保存结果冲突），失败时静默忽略，不影响页面。
+ * 回显入库状态：拉取该文件已入库的题目（题号 + 题目 ID）。
+ * 草稿里存了题目 ID 的题以 ID 为准校验是否仍有效（题库里查不到即视为已删除），
+ * 只存了题号的旧草稿则按题号兜底命中并顺手补上题目 ID。
  */
 async function loadImported() {
   try {
-    const loaded = await getImportedIndexes(props.id)
-    const saved = new Set(loaded || [])
-    questions.value.forEach((question) => {
-      if (saved.has(question.index)) question.saved = true
+    const loaded = await getImportedQuestions(props.id)
+    const idSet = new Set()
+    const idOfIndex = new Map()
+    ;(loaded || []).forEach((item) => {
+      idSet.add(String(item.questionId))
+      idOfIndex.set(item.index, String(item.questionId))
     })
+
+    let dirty = false
+    questions.value.forEach((question) => {
+      const id = question.questionId ? String(question.questionId) : ''
+      if (id) {
+        if (idSet.has(id)) {
+          question.saved = true
+        } else {
+          // 草稿里的题目已被从题库删除，清掉标记
+          question.saved = false
+          question.questionId = null
+          dirty = true
+        }
+        return
+      }
+      const mapped = idOfIndex.get(question.index)
+      if (mapped) {
+        question.saved = true
+        question.questionId = mapped
+        dirty = true
+      } else {
+        question.saved = false
+      }
+    })
+    if (dirty) markDraftDirty()
   } catch {
     // 入库状态只是辅助信息，取不到不阻塞页面
+  }
+}
+
+/** 查看已入库题目的入库信息：按题目 ID 取题库 details，展示在右侧面板 */
+async function viewBankInfo(index) {
+  if (busy.value) return
+  const question = questionOf(index)
+  if (!question || !question.questionId) return
+  commitEdit()
+
+  const cached = bankCache.get(index)
+  if (cached) {
+    showPanel(index, cached)
+    return
+  }
+
+  analyzingIndex.value = index
+  try {
+    const detail = await getQuestionDetail(question.questionId)
+    const markdown = detail?.details || ''
+    bankCache.set(index, markdown)
+    showPanel(index, markdown)
+  } catch {
+    // 失败提示由 http 拦截器统一弹出
+  } finally {
+    analyzingIndex.value = -1
   }
 }
 
@@ -570,6 +647,8 @@ async function startEdit(index) {
     document.execCommand('styleWithCSS', false, false)
     editBodyRef.innerHTML = question.html
     editBodyRef.focus()
+    // 手动写入的 innerHTML 不经过 Vue 更新，编辑态也要重新量一次选项组
+    layoutOptionGrids()
   }
 }
 
@@ -723,6 +802,7 @@ function splitAtCursor() {
       active: true,
       html: moved,
       editedHtml: moved,
+      questionId: null,
       analyzed: false,
       saved: false
     })
@@ -843,6 +923,31 @@ function renderQuestions() {
   observeEls([...(rootRef.value?.querySelectorAll('.q') || [])])
 }
 
+/**
+ * 选项组列数自适应：一行排得下就保持 1x4，排不下就改成 2x2，
+ * 让每行左右两端的选项分别贴住容器两边（间距随行宽自适应），避免出现 3+1 参差排布。
+ */
+function layoutOptionGrids() {
+  const root = rootRef.value
+  if (!root) return
+  const grids = [...root.querySelectorAll('.opt-grid')]
+  if (!grids.length) return
+  // 先退回自然换行状态，才能量出一行排布所需的真实宽度
+  grids.forEach((el) => el.classList.remove('is-pairs'))
+  grids.forEach((el) => {
+    const items = [...el.children]
+    if (items.length < 3) return
+    const gap = parseFloat(getComputedStyle(el).columnGap) || 0
+    const natural =
+      items.reduce((sum, item) => sum + item.getBoundingClientRect().width, 0) +
+      gap * (items.length - 1)
+    if (natural > el.clientWidth + 1) el.classList.add('is-pairs')
+  })
+}
+
+// 题目正文用 v-html 写入，编辑 / 合并 / 拆分后 DOM 会重建，需重新量一次
+onUpdated(() => nextTick(layoutOptionGrids))
+
 /** 离开页面时把当前状态存入会话缓存 */
 function snapshot() {
   return {
@@ -909,6 +1014,7 @@ async function load() {
       q.editedHtml = ''
       // 该题的块来自哪些原始题：只有「并入上方」会把多道原始题拼成一道
       q.source = [q.index]
+      q.questionId = null
       q.analyzed = false
       q.saved = false
     })
@@ -1232,6 +1338,11 @@ onBeforeUnmount(() => {
   border-top-color: currentColor;
   border-radius: 50%;
   animation: spin 0.8s linear infinite;
+}
+
+/* 已入库提示：文案左侧的绿色圆圈打勾 */
+.bank-check {
+  flex-shrink: 0;
 }
 
 /* 懒加载占位，等待进入视口后再渲染真实内容 */
@@ -1571,6 +1682,26 @@ onBeforeUnmount(() => {
 
 :deep(.blk-para p:last-child) {
   margin-bottom: 0;
+}
+
+/* 短选项组：每行两端顶格，选项间距随行宽自适应（1x4 一行、2x2 两行时各排左右对齐） */
+:deep(.opt-grid) {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  column-gap: 2em;
+  row-gap: 0;
+}
+
+:deep(.opt-grid .opt-item) {
+  white-space: nowrap;
+}
+
+/* 一行放不下时改成 2x2：两列各自贴边，行内间距自适应 */
+:deep(.opt-grid.is-pairs) {
+  display: grid;
+  grid-template-columns: auto auto;
+  justify-content: space-between;
 }
 
 :deep(.blk-title) {

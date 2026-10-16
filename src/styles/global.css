@@ -26,6 +26,8 @@
   --c-surface: #ffffff;
   --c-subtle: #faf9f5;
   --c-sidebar: #f5f5f5;
+  /* 文档工作区底色：比米色页面明显深一档的中性灰，让白纸浮起 */
+  --c-canvas: #eae9e3;
   --c-border: #e8e6dc;
   --c-hover: rgba(20, 20, 19, 0.05);
   --c-backdrop: rgba(20, 20, 19, 0.38);
@@ -93,6 +95,7 @@ html.dark {
   --c-surface: #242422;
   --c-subtle: #1e1e1c;
   --c-sidebar: #1e1e1c;
+  --c-canvas: #131312;
   --c-border: #35342f;
   --c-hover: rgba(255, 255, 255, 0.07);
   --c-backdrop: rgba(0, 0, 0, 0.6);

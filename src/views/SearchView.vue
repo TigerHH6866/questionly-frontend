@@ -425,7 +425,7 @@ async function copyLatex(q) {
 const BAR_COUNT = 26
 
 /** 长按空格触发录音的时长 */
-const SPACE_HOLD_MS = 2000
+const SPACE_HOLD_MS = 1500
 
 const recording = ref(false)
 const recognizing = ref(false)
@@ -518,12 +518,15 @@ function isTypingTarget(target) {
   return target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable
 }
 
+/**
+ * 任意状态下按住空格满 1.5s 即开始录音。
+ * 输入控件内不阻止空格的默认行为（保证正常打字），触发录音后多出来的那个空格
+ * 会在拼接识别文本时被 trim 掉；其余场景阻止默认行为，避免页面被空格滚动。
+ */
 function onSpaceDown(event) {
   if (event.code !== 'Space' || event.repeat) return
-  if (recording.value || isTypingTarget(event.target)) return
-  // 输入框里已有内容时不抢空格，避免打断正在编辑的提问
-  if (draft.value.trim()) return
-  event.preventDefault()
+  if (recording.value) return
+  if (!isTypingTarget(event.target)) event.preventDefault()
   spaceTriggered = false
   spaceTimer = setTimeout(() => {
     spaceTimer = null

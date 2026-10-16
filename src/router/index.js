@@ -22,6 +22,18 @@ const routes = [
     component: () => import('@/views/ResourcesView.vue')
   },
   {
+    path: '/compose',
+    name: 'compose',
+    component: () => import('@/views/ComposeView.vue')
+  },
+  {
+    // id 为 new 表示新建试卷（保存时才真正落库），其余为已有试卷 ID
+    path: '/compose/:id',
+    name: 'paper-editor',
+    component: () => import('@/views/PaperEditorView.vue'),
+    props: true
+  },
+  {
     path: '/tasks/:id',
     name: 'task-detail',
     component: () => import('@/views/TaskDetailView.vue'),

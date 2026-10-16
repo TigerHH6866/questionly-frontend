@@ -41,8 +41,7 @@
           <span>{{ t('nav.search') }}</span>
         </router-link>
 
-        <!-- 「沉浸式组卷」为占位入口，功能未实现，暂不跳转 -->
-        <button type="button" class="nav-item">
+        <router-link to="/compose" class="nav-item" :class="{ 'is-active': isCompose }">
           <svg class="nav-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true">
             <rect x="4.5" y="3.5" width="15" height="17" rx="2.2" stroke="currentColor" stroke-width="1.6" />
             <path
@@ -53,7 +52,7 @@
             />
           </svg>
           <span>{{ t('nav.compose') }}</span>
-        </button>
+        </router-link>
 
         <router-link to="/resources" class="nav-item" :class="{ 'is-active': isResources }">
           <svg class="nav-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true">
@@ -205,7 +204,7 @@
     </aside>
 
     <main class="main">
-      <header class="topbar">
+      <header class="topbar" :class="{ 'is-compact': isEditor }">
         <!-- 顶栏左侧插槽：入口页的标签栏等投射到这里（不再有页面标题文案） -->
         <div ref="topbarLead" class="topbar-lead"></div>
         <!-- 页面级操作插槽：处理页把文件标题卡片投射到这里，水平居中 -->
@@ -349,6 +348,9 @@ onBeforeUnmount(() => {
 /** 「导入新文件」只在空白上传页高亮；文件处理页的焦点由侧栏的近期文件列表体现 */
 const isImport = computed(() => route.path === '/')
 const isSearch = computed(() => route.path.startsWith('/search'))
+const isCompose = computed(() => route.path.startsWith('/compose'))
+/** 试卷编辑页：顶栏压缩高度，并承载「返回」按钮 */
+const isEditor = computed(() => route.name === 'paper-editor')
 const isResources = computed(() => route.path.startsWith('/resources'))
 
 function toggleLocale() {
@@ -793,6 +795,12 @@ html.dark .nav-item.is-active {
   align-items: center;
   height: 80px;
   padding: 0 4px 0 8px;
+}
+
+/* 试卷编辑页：顶栏只放一个返回按钮，高度压到 48px，把纵向空间让给编辑区 */
+.topbar.is-compact {
+  height: 48px;
+  padding: 0 4px 0 2px;
 }
 
 /* 顶栏左侧：投射进来的标签栏等操作元素，靠左贴齐（原页面标题的位置） */
