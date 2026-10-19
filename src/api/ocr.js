@@ -21,6 +21,11 @@ export function getOcrTask(id) {
   return http.get(`/ocr/tasks/${id}`)
 }
 
+/** 删除文件记录（物理删除，题库中已入库的题目不受影响） */
+export function deleteOcrTask(id) {
+  return http.delete(`/ocr/tasks/${id}`)
+}
+
 export function getTaskResult(id) {
   return http.get(`/ocr/tasks/${id}/result`)
 }

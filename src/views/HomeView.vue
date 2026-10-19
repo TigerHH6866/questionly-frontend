@@ -14,15 +14,7 @@
     >
       <template v-if="!picked">
         <span class="drop-mark">
-          <svg viewBox="0 0 24 24" width="26" height="26" fill="none" aria-hidden="true">
-            <path
-              d="M12 15.5V4m0 0L7.8 8.2M12 4l4.2 4.2M4.5 15.5v2.8A2.2 2.2 0 0 0 6.7 20.5h10.6a2.2 2.2 0 0 0 2.2-2.2v-2.8"
-              stroke="currentColor"
-              stroke-width="1.6"
-              stroke-linecap="round"
-              stroke-linejoin="round"
-            />
-          </svg>
+          <img class="drop-logo" src="/logo.png" alt="" width="54" height="54" />
         </span>
         <p class="drop-title">{{ t('import.drop.title') }}</p>
         <p class="drop-hint">{{ t('import.drop.hint') }}</p>
@@ -328,6 +320,8 @@ async function start() {
     const task = await createOcrTask(file.value)
     // 新任务已入库，广播一次让侧栏「近期文件」立刻刷新，新文件出现在列表首位
     window.dispatchEvent(new CustomEvent('questionly:recent-refresh'))
+    // 解析按次扣积分，同步账号胶囊里的余额
+    window.dispatchEvent(new CustomEvent('questionly:credits-refresh'))
     poll(task.id)
   } catch {
     phase.value = 'failed'
@@ -342,7 +336,7 @@ function poll(id) {
     try {
       const task = await getOcrTask(id)
       if (task.status === 'SUCCESS') {
-        router.push(`/tasks/${id}/process`)
+        router.push(`/app/tasks/${id}/process`)
         return
       }
       if (task.status === 'FAILED') {
@@ -418,6 +412,7 @@ function formatSize(bytes) {
     box-shadow 0.22s var(--ease-soft), transform 0.22s var(--ease-out);
 }
 
+/* 载入框品牌标：用与侧栏同一个 logo，不加底色、描边与投影 */
 .drop-mark {
   display: inline-flex;
   align-items: center;
@@ -425,10 +420,13 @@ function formatSize(bytes) {
   width: 54px;
   height: 54px;
   margin-bottom: 6px;
-  border-radius: 18px;
-  background: var(--c-dark);
-  color: var(--c-orange);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.12), 0 8px 18px -10px rgba(20, 20, 19, 0.6);
+}
+
+.drop-logo {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
 }
 
 .dropzone:hover,

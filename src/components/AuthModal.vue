@@ -10,17 +10,9 @@
           </button>
 
           <div class="auth-head">
+            <!-- 品牌标：与侧栏同一个 logo（frontend/public/logo.png），图形自带透明留白，不加底色与描边 -->
             <span class="auth-mark">
-              <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
-                <path
-                  d="M12 2.5 20.5 7.4v9.2L12 21.5 3.5 16.6V7.4L12 2.5Z"
-                  fill="none"
-                  stroke="currentColor"
-                  stroke-width="1.6"
-                  stroke-linejoin="round"
-                />
-                <circle cx="12" cy="12" r="3" fill="currentColor" />
-              </svg>
+              <img class="auth-logo" src="/logo.png" alt="" width="40" height="40" />
             </span>
             <h2 class="auth-title">{{ tab === 'signin' ? t('auth.signInTitle') : t('auth.signUpTitle') }}</h2>
             <p class="auth-sub">{{ tab === 'signin' ? t('auth.signInSub') : t('auth.signUpSub') }}</p>
@@ -84,13 +76,20 @@
                   maxlength="6"
                   inputmode="numeric"
                 />
-                <button type="button" class="auth-code-btn" disabled>{{ t('auth.sendCode') }}</button>
+                <button
+                  type="button"
+                  class="auth-code-btn"
+                  :disabled="codeSending || countdown > 0"
+                  @click="sendCode"
+                >
+                  {{ countdown > 0 ? `${countdown}s` : t('auth.sendCode') }}
+                </button>
               </div>
               <span v-if="errors.code" class="auth-error">{{ errors.code }}</span>
             </label>
 
             <button type="submit" class="auth-submit" :disabled="loading">
-              {{ loading ? t('auth.submitting') : tab === 'signin' ? t('auth.signIn') : t('auth.signUp') }}
+              {{ loading ? t(tab === 'signup' ? 'auth.signingUp' : 'auth.submitting') : tab === 'signin' ? t('auth.signIn') : t('auth.signUp') }}
             </button>
           </form>
         </div>
@@ -100,10 +99,10 @@
 </template>
 
 <script setup>
-import { reactive, ref, watch } from 'vue'
+import { onBeforeUnmount, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ElMessage } from 'element-plus'
-import { login } from '@/api/auth'
+import { login, register, sendCode as requestCode } from '@/api/auth'
 import { setAuth } from '@/utils/auth'
 
 const props = defineProps({
@@ -122,8 +121,22 @@ const PASSWORD_RE = /^(?=.*[A-Za-z])(?=.*\d)[A-Za-z\d]{8,}$/
 const visible = ref(props.modelValue)
 const tab = ref('signin')
 const loading = ref(false)
+/** 验证码发送中与重发倒计时 */
+const codeSending = ref(false)
+const countdown = ref(0)
+let countdownTimer = null
 const form = reactive({ email: '', password: '', code: '' })
 const errors = reactive({ email: '', password: '', code: '' })
+
+onBeforeUnmount(stopCountdown)
+
+function stopCountdown() {
+  if (countdownTimer) {
+    clearInterval(countdownTimer)
+    countdownTimer = null
+  }
+  countdown.value = 0
+}
 
 watch(
   () => props.modelValue,
@@ -134,6 +147,7 @@ watch(
       form.email = ''
       form.password = ''
       form.code = ''
+      stopCountdown()
       clearErrors()
     }
   }
@@ -184,20 +198,45 @@ function validate() {
   return ok
 }
 
+/** 获取注册验证码（需先填合法邮箱），成功后进入 60s 重发倒计时 */
+async function sendCode() {
+  clearErrors()
+  if (!form.email) {
+    errors.email = t('auth.errEmailRequired')
+    return
+  }
+  if (!EMAIL_RE.test(form.email)) {
+    errors.email = t('auth.errEmailFormat')
+    return
+  }
+  codeSending.value = true
+  try {
+    await requestCode(form.email)
+    ElMessage.success(t('auth.codeSent'))
+    stopCountdown()
+    countdown.value = 60
+    countdownTimer = setInterval(() => {
+      countdown.value -= 1
+      if (countdown.value <= 0) stopCountdown()
+    }, 1000)
+  } catch {
+    // 错误提示已由 http 拦截器统一处理
+  } finally {
+    codeSending.value = false
+  }
+}
+
 async function submit() {
   if (!validate()) return
 
-  // 注册暂未开放：仅做前端表单与校验，不调用后端
-  if (tab.value === 'signup') {
-    ElMessage.info(t('auth.signUpPending'))
-    return
-  }
-
   loading.value = true
   try {
-    const data = await login(form.email, form.password)
+    const data =
+      tab.value === 'signup'
+        ? await register(form.email, form.password, form.code)
+        : await login(form.email, form.password)
     setAuth(data)
-    ElMessage.success(t('auth.signInSuccess'))
+    ElMessage.success(t(tab.value === 'signup' ? 'auth.signUpSuccess' : 'auth.signInSuccess'))
     emit('success')
     close()
   } catch {
@@ -262,16 +301,21 @@ async function submit() {
   text-align: center;
 }
 
+/* 品牌标：只给一个盒子，底色/描边/投影都由图形自身承担 */
 .auth-mark {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   width: 40px;
   height: 40px;
-  border-radius: var(--radius-sm);
-  background: rgba(217, 119, 87, 0.12);
-  color: var(--c-orange);
-  box-shadow: inset 0 0 0 1px rgba(217, 119, 87, 0.16), 0 2px 6px -3px rgba(217, 119, 87, 0.4);
+}
+
+/* 像素风图形等比缩放即可，不做额外图形改动 */
+.auth-logo {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
 }
 
 .auth-title {
@@ -376,12 +420,25 @@ async function submit() {
   flex: none;
   height: 40px;
   padding: 0 14px;
-  border: 1px solid var(--c-border);
+  border: 1px solid var(--c-orange);
   border-radius: var(--radius-sm);
-  background: var(--c-subtle);
-  color: var(--c-mid-gray);
+  background: transparent;
+  color: var(--c-orange);
   font-size: 12.5px;
   font-weight: 500;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.auth-code-btn:hover:not(:disabled) {
+  background: var(--c-orange);
+  color: #fff;
+}
+
+.auth-code-btn:disabled {
+  border-color: var(--c-border);
+  background: var(--c-subtle);
+  color: var(--c-mid-gray);
   cursor: not-allowed;
 }
 

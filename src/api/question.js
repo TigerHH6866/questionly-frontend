@@ -24,6 +24,11 @@ export function getImportedQuestions(taskId) {
   return http.get('/questions/imported', { params: { taskId } })
 }
 
+/** 当前用户的题库列表（「我的题目」），每页 20 条，按入库时间倒序 */
+export function pageQuestions(pageNo = 1) {
+  return http.get('/questions', { params: { pageNo, pageSize: 20 } })
+}
+
 /** 按题目 ID 取题库详情，用于已入库题目展示「查看入库信息」 */
 export function getQuestionDetail(id) {
   return http.get(`/questions/${id}`)

@@ -30,6 +30,13 @@ export function setAuth({ token, ...user }) {
   currentUser.value = user
 }
 
+/** 用后端账本的余额更新本地缓存的额度（积分 / 题目额度），登录后与每次扣减后退回后调用 */
+export function updateQuota({ credits, questionCount }) {
+  if (!currentUser.value) return
+  currentUser.value = { ...currentUser.value, credits, questionCount }
+  localStorage.setItem(USER_KEY, JSON.stringify(currentUser.value))
+}
+
 /** 退出登录 / 令牌失效时清空 */
 export function clearAuth() {
   localStorage.removeItem(TOKEN_KEY)

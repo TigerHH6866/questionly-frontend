@@ -66,7 +66,7 @@ async function load() {
 
 /** 点击记录进入该文件的题目渲染交互页 */
 function open(row) {
-  router.push(`/tasks/${row.id}/process`)
+  router.push(`/app/tasks/${row.id}/process`)
 }
 
 function statusType(status) {

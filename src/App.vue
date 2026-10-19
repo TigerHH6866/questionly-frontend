@@ -1,18 +1,12 @@
 <template>
-  <div class="shell">
+  <!-- 工作区外壳：仅在 /app 路由下渲染；落地页与法律页是全幅独立页面，不套侧栏 -->
+  <div v-if="inWorkspace" class="shell">
     <aside class="sidebar">
       <div class="brand">
         <span class="brand-mark">
-          <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
-            <path
-              d="M12 2.5 20.5 7.4v9.2L12 21.5 3.5 16.6V7.4L12 2.5Z"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="1.6"
-              stroke-linejoin="round"
-            />
-            <circle cx="12" cy="12" r="3" fill="currentColor" />
-          </svg>
+          <!-- 品牌标：用 resources/logo-2048.png 裁切后的成品（frontend/public/logo.png），
+               图形本身已带透明留白，这里只负责缩放 -->
+          <img class="brand-logo" src="/logo.png" alt="" width="34" height="34" />
         </span>
         <span class="brand-name">{{ t('app.name') }}</span>
       </div>
@@ -20,7 +14,7 @@
       <nav class="nav">
         <p class="nav-label">{{ t('nav.section') }}</p>
 
-        <router-link to="/" class="nav-item" :class="{ 'is-active': isImport }">
+        <router-link to="/app" class="nav-item" :class="{ 'is-active': isImport }">
           <svg class="nav-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true">
             <path
               d="M12 15.5V4m0 0L7.8 8.2M12 4l4.2 4.2M4.5 15.5v2.8A2.2 2.2 0 0 0 6.7 20.5h10.6a2.2 2.2 0 0 0 2.2-2.2v-2.8"
@@ -33,7 +27,7 @@
           <span>{{ t('nav.import') }}</span>
         </router-link>
 
-        <router-link to="/search" class="nav-item" :class="{ 'is-active': isSearch }">
+        <router-link to="/app/search" class="nav-item" :class="{ 'is-active': isSearch }">
           <svg class="nav-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true">
             <circle cx="11" cy="11" r="6.2" stroke="currentColor" stroke-width="1.6" />
             <path d="m15.6 15.6 4 4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" />
@@ -41,7 +35,7 @@
           <span>{{ t('nav.search') }}</span>
         </router-link>
 
-        <router-link to="/compose" class="nav-item" :class="{ 'is-active': isCompose }">
+        <router-link to="/app/compose" class="nav-item" :class="{ 'is-active': isCompose }">
           <svg class="nav-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true">
             <rect x="4.5" y="3.5" width="15" height="17" rx="2.2" stroke="currentColor" stroke-width="1.6" />
             <path
@@ -54,7 +48,7 @@
           <span>{{ t('nav.compose') }}</span>
         </router-link>
 
-        <router-link to="/resources" class="nav-item" :class="{ 'is-active': isResources }">
+        <router-link to="/app/resources" class="nav-item" :class="{ 'is-active': isResources }">
           <svg class="nav-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true">
             <path
               d="M3.8 7.3a2.1 2.1 0 0 1 2.1-2.1h3l1.8 2h7.4a2.1 2.1 0 0 1 2.1 2.1v8.5a2.1 2.1 0 0 1-2.1 2.1H5.9a2.1 2.1 0 0 1-2.1-2.1V7.3Z"
@@ -115,15 +109,16 @@
                 <p class="account-email">{{ currentUser?.email }}</p>
               </div>
               <div class="account-credits">
-                <span class="account-credits-pill">⭐ {{ currentUser?.credits ?? 0 }} {{ t('auth.credits') }}</span>
+                <span class="account-credits-pill">{{ quotaText }}</span>
               </div>
-              <!-- 占位入口：功能未实现，暂不跳转（与侧栏「沉浸式组卷 / 我的资源」同一处理方式） -->
+              <!-- 账号菜单入口：「升级套餐」「门户主页」新标签页打开，「我的订单」跳订单页 -->
               <div class="account-menu">
                 <button
                   v-for="entry in accountEntries"
                   :key="entry.label"
                   type="button"
                   class="account-entry"
+                  @click="onAccountEntry(entry)"
                 >
                   <svg class="entry-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true">
                     <path
@@ -218,8 +213,15 @@
       </div>
     </main>
 
-    <AuthModal v-model="authOpen" :initial-tab="authTab" />
   </div>
+
+  <!-- 落地页 / 法律页：整幅渲染，不带工作区外壳 -->
+  <router-view v-else />
+
+  <!-- 登录弹窗挂在最外层，落地页与工作区共用（原先在 .shell 内部，外壳隐藏时弹不出来） -->
+  <AuthModal v-model="authOpen" :initial-tab="authTab" />
+  <!-- 支付弹窗同样挂在最外层：套餐页定价卡与工作区账号菜单都通过 questionly:pay 打开它 -->
+  <PayModal v-model="payOpen" :initial-plan-id="payPlanId" />
 </template>
 
 <script setup>
@@ -227,9 +229,11 @@ import { computed, onBeforeUnmount, onMounted, provide, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import AuthModal from '@/components/AuthModal.vue'
+import PayModal from '@/components/PayModal.vue'
 import { pageOcrTasks } from '@/api/ocr'
+import { fetchCredits } from '@/api/auth'
 import { setLocale } from '@/i18n'
-import { clearAuth, currentUser, isLoggedIn } from '@/utils/auth'
+import { clearAuth, currentUser, isLoggedIn, updateQuota } from '@/utils/auth'
 import { theme, toggleTheme } from '@/utils/theme'
 
 const route = useRoute()
@@ -238,11 +242,20 @@ const { t, locale } = useI18n()
 
 const authOpen = ref(false)
 const authTab = ref('signin')
+const payOpen = ref(false)
+/** 支付弹窗默认选中的套餐，0 表示按当前套餐自动选下一档 */
+const payPlanId = ref(0)
 const accountOpen = ref(false)
 
 const displayName = computed(() => currentUser.value?.nickname || currentUser.value?.email || t('nav.account'))
 
-/** 账号卡片里的入口：目前只是占位展示，未接任何路由与动作 */
+/** 账号卡片里的额度胶囊：积分 + 题目额度（数值取自后端账本，登录与每次扣减后刷新） */
+const quotaText = computed(
+  () =>
+    `⭐ ${currentUser.value?.credits ?? 0} ${t('auth.credits')} · ${currentUser.value?.questionCount ?? 0} ${t('auth.questions')}`
+)
+
+/** 账号卡片里的入口；具体行为见 onAccountEntry */
 const accountEntries = [
   {
     label: 'nav.portal',
@@ -287,6 +300,40 @@ function onUnauthorized() {
   authOpen.value = true
 }
 
+/** 落地页顶导的「登录」按钮等外部入口：广播 questionly:auth 即可打开弹窗（可指定默认标签） */
+function onAuthRequest(event) {
+  accountOpen.value = false
+  authTab.value = event?.detail?.tab === 'signup' ? 'signup' : 'signin'
+  authOpen.value = true
+}
+
+/** 账号菜单入口：「升级套餐」「门户主页」新标签页打开外部页面，「我的订单」跳订单页 */
+function onAccountEntry(entry) {
+  accountOpen.value = false
+  if (entry.label === 'nav.upgrade') {
+    window.open('/plans', '_blank', 'noopener')
+  } else if (entry.label === 'nav.portal') {
+    window.open('/', '_blank', 'noopener')
+  } else if (entry.label === 'nav.orders') {
+    router.push('/app/orders')
+  }
+}
+
+/** 打开支付弹窗；未登录先走登录流程。planId 为 0 时由弹窗按当前套餐自动选下一档 */
+function openPay(planId) {
+  if (!loggedIn.value) {
+    onAuthRequest({ detail: { tab: 'signin' } })
+    return
+  }
+  payPlanId.value = Number(planId) || 0
+  payOpen.value = true
+}
+
+/** 套餐页定价卡的「立即购买」广播 questionly:pay 打开支付弹窗 */
+function onPayRequest(event) {
+  openPay(event?.detail?.planId)
+}
+
 /** 登录态（currentUser 为响应式，登录/退出都会触发重算） */
 const loggedIn = computed(() => Boolean(currentUser.value) && isLoggedIn())
 
@@ -319,39 +366,69 @@ async function loadRecent() {
 
 /** 点击记录进入该文件的题目渲染交互页 */
 function openTask(row) {
-  router.push(`/tasks/${row.id}/process`)
+  router.push(`/app/tasks/${row.id}/process`)
+}
+
+/** 从后端账本刷新积分与题目额度（登录后、每次扣减或退回后调用） */
+async function refreshQuota() {
+  if (!isLoggedIn()) return
+  try {
+    const quota = await fetchCredits()
+    if (quota) updateQuota({ credits: quota.credits, questionCount: quota.questions })
+  } catch {
+    // 刷新失败不打扰用户，保留上一次展示值
+  }
 }
 
 function isCurrentTask(row) {
-  return route.path === `/tasks/${row.id}/process`
+  return route.path === `/app/tasks/${row.id}/process`
 }
 
-// 每次路由变化刷新一次，保证导入完成后列表是最新的
-watch(() => route.path, loadRecent)
-// 登录后立即拉取，退出登录后清空
-watch(currentUser, loadRecent)
+/** 是否处于工作区（/app 下）。落地页与法律页走不带侧栏的整幅布局 */
+const inWorkspace = computed(() => route.path.startsWith('/app'))
+
+// 每次路由变化刷新一次，保证导入完成后列表是最新的；离开工作区时不再请求
+watch(() => route.path, () => {
+  if (inWorkspace.value) loadRecent()
+}, { immediate: false })
+// 登录后拉取列表与额度，退出登录后清空列表。
+// 只监听登录态本身（不监听 currentUser 对象）：额度刷新会重新赋值 currentUser，
+// 若监听对象引用就会「刷新额度 → 赋值 → 再刷新」无限循环，导致订单页等反复清空重载（闪烁）
+watch(() => Boolean(currentUser.value), () => {
+  loadRecent()
+  refreshQuota()
+})
 
 onMounted(() => {
   document.addEventListener('click', onDocumentClick)
   window.addEventListener('questionly:unauthorized', onUnauthorized)
+  window.addEventListener('questionly:auth', onAuthRequest)
+  // 套餐页定价卡点击「立即购买」时广播，打开支付弹窗
+  window.addEventListener('questionly:pay', onPayRequest)
   // 新建 OCR 任务后由导入页广播，让新文件立刻出现在列表首位
   window.addEventListener('questionly:recent-refresh', loadRecent)
+  // 解析扣分 / 入库扣题后由页面广播，同步账号胶囊里的额度
+  window.addEventListener('questionly:credits-refresh', refreshQuota)
   loadRecent()
+  refreshQuota()
 })
 
 onBeforeUnmount(() => {
   document.removeEventListener('click', onDocumentClick)
   window.removeEventListener('questionly:unauthorized', onUnauthorized)
+  window.removeEventListener('questionly:auth', onAuthRequest)
+  window.removeEventListener('questionly:pay', onPayRequest)
   window.removeEventListener('questionly:recent-refresh', loadRecent)
+  window.removeEventListener('questionly:credits-refresh', refreshQuota)
 })
 
 /** 「导入新文件」只在空白上传页高亮；文件处理页的焦点由侧栏的近期文件列表体现 */
-const isImport = computed(() => route.path === '/')
-const isSearch = computed(() => route.path.startsWith('/search'))
-const isCompose = computed(() => route.path.startsWith('/compose'))
+const isImport = computed(() => route.path === '/app')
+const isSearch = computed(() => route.path.startsWith('/app/search'))
+const isCompose = computed(() => route.path.startsWith('/app/compose'))
 /** 试卷编辑页：顶栏压缩高度，并承载「返回」按钮 */
 const isEditor = computed(() => route.name === 'paper-editor')
-const isResources = computed(() => route.path.startsWith('/resources'))
+const isResources = computed(() => route.path.startsWith('/app/resources'))
 
 function toggleLocale() {
   setLocale(locale.value === 'zh-CN' ? 'en-US' : 'zh-CN')
@@ -388,16 +465,21 @@ function toggleLocale() {
   padding: 0 8px 26px;
 }
 
+/* 品牌标：图形自带透明留白，这里不再加底色、描边与投影，只负责给它一个盒子 */
 .brand-mark {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 32px;
-  height: 32px;
-  border-radius: var(--radius-sm);
-  background: rgba(217, 119, 87, 0.12);
-  color: var(--c-orange);
-  box-shadow: inset 0 0 0 1px rgba(217, 119, 87, 0.16), 0 2px 6px -3px rgba(217, 119, 87, 0.4);
+  width: 34px;
+  height: 34px;
+}
+
+/* 像素风图形缩小到 34px 会被浏览器平滑插值，保持等比即可，不做额外的图形改动 */
+.brand-logo {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
 }
 
 .brand-name {

@@ -11,6 +11,22 @@
     </div>
 
     <template v-else>
+      <!-- 返回：投射到顶栏左侧，与组卷编辑页的返回同一位置、同一观感 -->
+      <Teleport v-if="topbarLead" :to="topbarLead">
+        <button class="back-btn" type="button" @click="goBack">
+          <svg viewBox="0 0 24 24" width="15" height="15" fill="none" aria-hidden="true">
+            <path
+              d="M14.6 5.6 8.2 12l6.4 6.4"
+              stroke="currentColor"
+              stroke-width="1.9"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            />
+          </svg>
+          <span>{{ t('common.back') }}</span>
+        </button>
+      </Teleport>
+
       <!-- 文件标题卡片：投射到父级顶栏，与页标题同一行、与下方题目区域同一中轴线 -->
       <Teleport v-if="topbarSlot" :to="topbarSlot">
         <header class="head">
@@ -199,6 +215,7 @@
 
 <script setup>
 import { computed, inject, nextTick, onBeforeUnmount, onMounted, onUpdated, ref } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { getTaskResult, saveTaskDraft } from '@/api/ocr'
@@ -218,9 +235,26 @@ import { saveProcessState, getProcessState } from '@/utils/importSession'
 const props = defineProps({ id: { type: String, required: true } })
 
 const { t } = useI18n()
+const route = useRoute()
+const router = useRouter()
 
 /** 顶栏操作插槽节点（由 App.vue 提供）：文件标题卡片投射到那里，与页标题同一行 */
 const topbarSlot = inject('topbarSlot', null)
+/** 顶栏左侧插槽：返回入口投射到那里，与其它页面的返回按钮同一位置 */
+const topbarLead = inject('topbarLead', null)
+
+/**
+ * 返回：从「我的文件」进来的按来源标记回到该列表（含标签），
+ * 其它入口（导入后的跳转、侧栏近期文件、任务列表）按浏览器历史回退，无历史时兜底回列表
+ */
+function goBack() {
+  if (route.query.from === 'resources') {
+    router.push('/app/resources?tab=files')
+    return
+  }
+  if (window.history.state && window.history.state.back) router.back()
+  else router.push('/app/resources?tab=files')
+}
 
 const loading = ref(false)
 const failed = ref(false)
@@ -446,6 +480,8 @@ async function saveToBank() {
     question.saved = true
     markDraftDirty()
     ElMessage.success(t('process.saved'))
+    // 入库一道题消耗一份题目额度，同步账号胶囊里的余额
+    window.dispatchEvent(new CustomEvent('questionly:credits-refresh'))
   } catch {
     // 失败提示由 http 拦截器统一弹出
   } finally {
@@ -1137,8 +1173,7 @@ onBeforeUnmount(() => {
   white-space: nowrap;
 }
 
-/* 「共 N 题」走无衬线栈（--font-heading）：正文衬线体首选 Georgia，
-   其旧式数字高低不齐（见 ResourcesView 的 .count 注释） */
+/* 「共 N 题」走无衬线栈 + 等宽数字，避免数字宽度变化时右侧对不齐 */
 .counter {
   flex: none;
   margin-left: auto;
@@ -1147,6 +1182,36 @@ onBeforeUnmount(() => {
   font-variant-numeric: tabular-nums;
   color: var(--c-mid-gray);
   white-space: nowrap;
+}
+
+/* 返回入口：投射在顶栏左侧，胶囊描边按钮，与组卷编辑页的返回保持一致 */
+.back-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 32px;
+  padding: 0 14px 0 10px;
+  border: 1px solid var(--c-border);
+  border-radius: 999px;
+  background: var(--c-surface);
+  color: var(--c-dark);
+  font-family: var(--font-heading);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  box-shadow: var(--shadow-xs);
+  transition: border-color 0.2s var(--ease-soft), background 0.2s var(--ease-soft),
+    color 0.2s var(--ease-soft), transform 0.15s var(--ease-out);
+}
+
+.back-btn:hover {
+  border-color: rgba(217, 119, 87, 0.55);
+  background: rgba(217, 119, 87, 0.08);
+  color: var(--c-orange);
+}
+
+.back-btn:active {
+  transform: scale(0.97);
 }
 
 .btn {

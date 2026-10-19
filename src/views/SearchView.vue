@@ -4,19 +4,12 @@
       <div class="chat-col">
         <div ref="chatRef" class="chat-scroll">
           <div v-if="!turns.length" class="hero">
-            <span class="hero-mark">
-              <svg viewBox="0 0 24 24" width="26" height="26" aria-hidden="true">
-                <path
-                  d="M12 2.5 20.5 7.4v9.2L12 21.5 3.5 16.6V7.4L12 2.5Z"
-                  fill="none"
-                  stroke="currentColor"
-                  stroke-width="1.6"
-                  stroke-linejoin="round"
-                />
-                <circle cx="12" cy="12" r="3" fill="currentColor" />
-              </svg>
-            </span>
-            <h2 class="hero-name">{{ t('app.name') }}</h2>
+            <div class="hero-brand">
+              <span class="hero-mark">
+                <img class="hero-logo" src="/logo.png" alt="" width="54" height="54" />
+              </span>
+              <h2 class="hero-name">{{ t('nav.search') }}</h2>
+            </div>
             <p class="hero-desc">{{ t('search.empty.desc') }}</p>
           </div>
 
@@ -655,16 +648,27 @@ onBeforeUnmount(() => {
   text-align: center;
 }
 
+/* 空态品牌标 + 页面标题同一行 */
+.hero-brand {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+/* 空态品牌标：沿用与侧栏同一个 logo，同样不加底色与描边 */
 .hero-mark {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   width: 54px;
   height: 54px;
-  border-radius: var(--radius-md);
-  background: rgba(217, 119, 87, 0.12);
-  color: var(--c-orange);
-  box-shadow: inset 0 0 0 1px rgba(217, 119, 87, 0.16), 0 2px 6px -3px rgba(217, 119, 87, 0.4);
+}
+
+.hero-logo {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
 }
 
 .hero-name {

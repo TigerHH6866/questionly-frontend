@@ -1,6 +1,91 @@
 export default {
   app: {
-    name: 'Questionly'
+    name: '妙 题'
+  },
+  /* 落地页（公开主页，与工作区共用一套设计令牌） */
+  landing: {
+    nav: { workspace: '工作区', pricing: '定价', guide: '教程' },
+    login: '登录',
+    account: { workspace: '进入工作区', settings: '设置', logout: '退出登录' },
+    cta: '进入工作区',
+    hero: {
+      eyebrow: 'AI 试卷识别与组卷工作台',
+      title: '把一张试卷，变成可检索的结构化题库',
+      sub: '上传 PDF、Word 或照片，AI 自动识别题干、选项、公式、表格与插图，分析学科、年级、知识点与考察能力；用自然语言就能检索，选中的题目可直接排版成 A4 试卷。',
+      secondary: '看看能做什么',
+      play: '播放演示',
+      videoHint: '演示视频准备中，可先进入工作区体验'
+    },
+    features: {
+      eyebrow: '两大核心能力',
+      title: '先把纸面搬进系统，再把题目读明白',
+      sub: '文件解析负责还原卷面，AI 分析负责理解每道题在考什么——两者合起来，才是真正可用的题库。',
+      parse: {
+        title: '文件解析',
+        desc: '把扫描件、照片、PDF 与 Word 完整还原成结构化题目，版式、公式、表格与插图一个不少。',
+        p1: '按题号顺序自动切分题干、选项、解答与答案',
+        p2: '公式与表格原样保留，插图自动转存到你的存储空间',
+        p3: '支持批量上传，上百页文档也能一次处理完'
+      },
+      analyze: {
+        title: 'AI 分析题目',
+        desc: '不只是识别文字，模型会读懂每道题的考点，补全可检索的结构化信息。',
+        p1: '自动判定学科、年级、题型与难度',
+        p2: '提炼知识点与考察能力，生成结构化解析',
+        p3: '识别结果可直接编辑，改完即入库'
+      }
+    },
+    search: {
+      eyebrow: '第三件事',
+      title: '便捷搜索',
+      sub: '不必记住章节与知识点目录，用平时说话的方式描述要找的题，模型会把它翻译成检索条件。',
+      p1: '自然语言提问，自动理解意图与限定条件',
+      p2: '题干与解析同时匹配，召回更全',
+      p3: '查到的题目可以一键加入试卷',
+      query: '找几道考察「函数单调性」的高一压轴题',
+      r1: '已知函数 f(x)=x³−3ax+1 在区间 (1,+∞) 上单调递增，求实数 a 的取值范围。',
+      r2: '设 f(x)=ln x−ax，讨论 f(x) 的单调性，并求其在 [1,e] 上的最小值。',
+      r3: '若函数 f(x)=x²−2x+a 在 (0,3) 上不单调，求 a 的取值范围。',
+      meta: '数学 · 高一 · 压轴',
+      foot: '检索结果由 AI 生成，请核对后再使用'
+    },
+    compose: {
+      eyebrow: '第四件事',
+      title: '沉浸式组卷',
+      sub: '选中的题目按 A4 版式自动分页，像编辑器一样直接改字、调格式、换版面，改完即可交付。',
+      p1: '逐行填充、页满自动跨页，断点只落在字符边界',
+      p2: '公式与图片不跨页拆分，单栏双栏随版面切换',
+      p3: '标题、题号、分值与格式微调，所见即所得',
+      chip: 'A4 · 双栏 · 自动分页'
+    },
+    pricing: {
+      /* 套餐名：套餐页、支付弹窗与订单列表共用；价格 / 积分 / 题目额度等一律以 credits_plan 表为准 */
+      basic: { name: '基础' },
+      plus: { name: '进阶' },
+      pro: { name: '专业' }
+    },
+    footer: {
+      tagline: '把纸面试卷变成可检索、可组卷的结构化题库。',
+      product: '产品',
+      learn: '功能',
+      legal: '法律条款',
+      terms: '用户协议',
+      privacy: '隐私政策',
+      rights: '保留所有权利'
+    }
+  },
+  /* 法律页（用户协议 / 隐私政策）：正文改为 src/legal 下的 Markdown 文件承载，这里只留页面框架文案 */
+  legal: {
+    updated: '最后更新：2026 年 10 月 19 日 · 生效日期：2026 年 10 月 19 日',
+    back: '返回首页',
+    terms: {
+      eyebrow: '法律条款',
+      title: '用户协议'
+    },
+    privacy: {
+      eyebrow: '法律条款',
+      title: '隐私政策'
+    }
   },
   nav: {
     section: '工作区',
@@ -32,7 +117,27 @@ export default {
     total: '共 {total} 个文件',
     empty: '还没有文件，先从「导入新文件」开始',
     needLogin: '登录后可查看自己的文件',
-    soon: '该标签页正在建设中'
+    files: {
+      cardLabel: '文件',
+      questionCount: '{count} 道题',
+      parsed: '已解析',
+      delete: '删除',
+      deleteTip: '删除后该文件记录不可恢复，题库中已入库的题目不受影响',
+      deleted: '已删除'
+    },
+    papers: {
+      cardLabel: '试卷',
+      total: '共 {total} 份试卷',
+      empty: '还没有试卷，去「沉浸式组卷」新建一份',
+      needLogin: '登录后可查看自己的试卷'
+    },
+    questions: {
+      total: '共 {total} 道题',
+      empty: '题库里还没有题目，先在「导入新文件」里分析入库',
+      needLogin: '登录后可查看自己的题目',
+      detail: '查看详情',
+      stem: '题干'
+    }
   },
   tasks: {
     list: '近期文件',
@@ -55,7 +160,7 @@ export default {
     subtitle: '上传文档或图片，Ai自动识别题目并分析入库',
     drop: {
       title: '点击选择文件，或将文件拖拽到此处',
-      hint: '支持 图片 / PDF  / Word / PPT，最大100MB 100页；也可直接 Ctrl+V 粘贴截图或文件'
+      hint: '支持图片 / PDF  / Word / PPT，最大100MB 100页, 也可直接Ctrl/Command+V 粘贴截图或文件'
     },
     start: '开始识别处理',
     waiting: '正在识别处理文档…',
@@ -71,15 +176,15 @@ export default {
     cards: {
       recognize: {
         title: '识别能力',
-        desc: '基于 MinerU OCR，精准提取试卷与文档中的题干、公式、表格和插图。'
+        desc: '先进的人工智能视觉模型，精准提取全学科试卷与文档中的题干、公式、表格和插图。'
       },
       analyze: {
-        title: '人工智能分析题目',
-        desc: '自动分析科目、年级、知识点与考察能力，生成结构化的题目分析报告。'
+        title: '智能分析',
+        desc: '告别累人的手动录入，AI自动分析科目、年级、知识点与考察能力，生成结构化的题目分析内容。'
       },
       search: {
-        title: '人工智能搜索题目',
-        desc: '用自然语言描述需求，自动转成数据库查询，精准检索你的题库。'
+        title: '便捷搜索',
+        desc: '不必拘泥于刻板的章节知识点，用大白话说想搜什么，人工智能会为您找到一切。'
       }
     }
   },
@@ -120,13 +225,14 @@ export default {
   },
   common: {
     confirm: '确定',
-    cancel: '取消'
+    cancel: '取消',
+    back: '返回'
   },
   compose: {
     back: '返回',
     new: '新建组卷',
     newHint: '从题库搜索题目，排版生成一份新试卷',
-    total: '共 {total} 份试卷',
+    recent: '近期编辑',
     empty: '还没有试卷，点击上方卡片新建一份',
     needLogin: '登录后可查看自己的试卷',
     loadFailed: '试卷加载失败',
@@ -139,12 +245,30 @@ export default {
       empty: '没有找到匹配的题目'
     },
     doc: {
-      placeholder: '在左侧搜索题目并点击「插入」，或直接在这里输入内容'
+      placeholder: '在左侧搜索题目并点击「插入」，或直接在这里输入内容',
+      page: '第 {n} 页'
+    },
+    size: {
+      three: '三号',
+      four: '四号',
+      smallFour: '小四',
+      five: '五号',
+      smallFive: '小五'
     },
     options: {
       paperSize: '版面',
       zoom: '显示比例',
       zoomFit: '适配',
+      format: '文字格式',
+      fontSize: '字号',
+      lineHeight: '行距',
+      align: '对齐',
+      alignLeft: '左对齐',
+      alignCenter: '居中对齐',
+      alignRight: '右对齐',
+      bold: '加粗',
+      italic: '斜体',
+      underline: '下划线',
       title: '试卷标题',
       titlePlaceholder: '请输入试卷标题',
       titleRequired: '请输入试卷标题',
@@ -172,15 +296,69 @@ export default {
     codePlaceholder: '请输入验证码',
     sendCode: '获取验证码',
     submitting: '登录中…',
+    signingUp: '注册中…',
     signInSuccess: '登录成功',
-    signUpPending: '注册功能即将开放，敬请期待',
+    signUpSuccess: '注册成功，已为你赠送 100 积分与 20 道题目额度',
+    codeSent: '验证码已发送，请查收邮箱',
     credits: '积分',
+    questions: '道题目',
     logout: '退出登录',
     errEmailRequired: '请输入邮箱',
     errEmailFormat: '邮箱格式不正确',
     errPasswordRequired: '请输入密码',
     errPasswordRule: '密码需为 8 位以上，且同时包含字母和数字',
     errCodeRequired: '请输入验证码'
+  },
+  /* 支付弹窗（微信 Native 扫码支付）：套餐档位文案复用 landing.pricing 里的 name */
+  pay: {
+    title: '升级套餐',
+    sub: '微信扫码支付，支付成功后额度立即到账',
+    qrAlt: '微信支付二维码',
+    current: '当前套餐',
+    highest: '当前已是最高套餐，无需升级',
+    pending: '等待支付…',
+    success: '支付成功，套餐已到账',
+    closed: '订单已关闭，请重新选择套餐下单',
+    expired: '二维码已过期，请重新选择套餐下单',
+    failHint: '下单失败，请稍后重试或联系客服'
+  },
+  /* 我的订单（套餐名复用 landing.pricing 里的 name，这里只放列表与状态文案） */
+  orders: {
+    needLogin: '登录后可查看自己的订单',
+    empty: '还没有订单，去账号菜单里选一个套餐吧',
+    total: '共 {total} 笔订单',
+    repay: '继续支付',
+    tradeNo: '订单号',
+    createdAt: '下单时间',
+    paidAt: '支付时间',
+    status: {
+      CREATED: '待支付',
+      PAID: '已支付',
+      CLOSED: '已关闭',
+      FAILED: '下单失败'
+    }
+  },
+  /* 独立套餐页（/plans）：档位与金额取自后端 credits_plan，这里只放页面框架与通用卖点文案 */
+  plans: {
+    titleLead: '先免费试用，',
+    titleAccent: '需要时再升级。',
+    sub: '没有任何隐藏费用。AI 分析、检索与组卷始终免费，额度随套餐一次性到账，有效期一年。',
+    popular: '最受欢迎',
+    best: '超值优选',
+    free: '免费',
+    perYear: '/ 年',
+    forever: '长期有效，无需付费',
+    validFor: '有效期 {days} 天',
+    included: '已包含',
+    current: '当前套餐',
+    noDowngrade: '不可降级',
+    ctaFree: '免费开始',
+    ctaBuy: '立即购买',
+    footFree: '注册即赠 · 无需绑定支付',
+    footBuy: '仅支持升级 · 不支持降级',
+    note: '所有套餐购买后立即生效，积分与题目额度有效期一年；同一账号仅支持升级，不支持降级。',
+    loading: '正在加载套餐…',
+    empty: '暂时没有可购买的套餐'
   },
   search: {
     placeholder: '用自然语言描述你要找的题目，如「找一下瓜豆原理的题目」',

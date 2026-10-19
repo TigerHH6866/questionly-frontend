@@ -33,7 +33,7 @@
         <ul v-else class="hits">
           <li v-for="hit in hits" :key="hit.id" class="hit">
             <div class="hit-text" v-html="hit.html"></div>
-            <button type="button" class="hit-add" @click="insert(hit)">
+            <button type="button" class="hit-add" @mousedown="keepFocus" @click="insert(hit)">
               <svg viewBox="0 0 24 24" width="14" height="14" fill="none" aria-hidden="true">
                 <path d="M12 5.4v13.2M5.4 12h13.2" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
               </svg>
@@ -114,13 +114,108 @@
           :style="sheetStyle"
           contenteditable="true"
           spellcheck="false"
-          :data-placeholder="t('compose.doc.placeholder')"
+          @mousedown="onSheetMouseDown"
+          @keydown="onSheetKeydown"
+          @input="onSheetInput"
+          @compositionend="schedulePaginate(90)"
         ></div>
       </div>
     </section>
 
     <!-- 右：选项区 -->
     <aside class="options">
+      <!-- 文字格式：改的是正文里光标所在的文字 / 段落 -->
+      <div class="opt-card">
+        <p class="opt-label">{{ t('compose.options.format') }}</p>
+
+        <div class="fmt-row">
+          <span class="fmt-tag">{{ t('compose.options.fontSize') }}</span>
+          <div class="fmt-chips">
+            <button
+              v-for="size in FONT_SIZES"
+              :key="size.key"
+              type="button"
+              class="fmt-chip"
+              :class="{ 'is-active': formatState.fontSize === size.key }"
+              @mousedown="keepFocus"
+              @click="applyFontSize(size)"
+            >
+              {{ t(size.label) }}
+            </button>
+          </div>
+        </div>
+
+        <div class="fmt-row">
+          <span class="fmt-tag">{{ t('compose.options.lineHeight') }}</span>
+          <div class="fmt-chips">
+            <button
+              v-for="item in LINE_HEIGHTS"
+              :key="item.key"
+              type="button"
+              class="fmt-chip"
+              :class="{ 'is-active': formatState.lineHeight === item.key }"
+              @mousedown="keepFocus"
+              @click="applyLineHeight(item)"
+            >
+              {{ item.label }}
+            </button>
+          </div>
+        </div>
+
+        <div class="fmt-row">
+          <span class="fmt-tag">{{ t('compose.options.align') }}</span>
+          <div class="fmt-chips">
+            <button
+              v-for="dir in ALIGNMENTS"
+              :key="dir.key"
+              type="button"
+              class="fmt-icon"
+              :class="{ 'is-active': formatState.align === dir.key }"
+              :title="t(dir.label)"
+              @mousedown="keepFocus"
+              @click="applyAlign(dir.key)"
+            >
+              <svg viewBox="0 0 16 16" width="14" height="14" fill="none" aria-hidden="true">
+                <path :d="dir.path" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" />
+              </svg>
+            </button>
+
+            <span class="fmt-gap" aria-hidden="true"></span>
+
+            <button
+              type="button"
+              class="fmt-icon"
+              :class="{ 'is-active': formatState.bold }"
+              :title="t('compose.options.bold')"
+              @mousedown="keepFocus"
+              @click="execCmd('bold')"
+            >
+              <span class="fmt-glyph fmt-glyph--bold">B</span>
+            </button>
+            <button
+              type="button"
+              class="fmt-icon"
+              :class="{ 'is-active': formatState.italic }"
+              :title="t('compose.options.italic')"
+              @mousedown="keepFocus"
+              @click="execCmd('italic')"
+            >
+              <span class="fmt-glyph fmt-glyph--italic">I</span>
+            </button>
+            <button
+              type="button"
+              class="fmt-icon"
+              :class="{ 'is-active': formatState.underline }"
+              :title="t('compose.options.underline')"
+              @mousedown="keepFocus"
+              @click="execCmd('underline')"
+            >
+              <span class="fmt-glyph fmt-glyph--underline">U</span>
+            </button>
+          </div>
+        </div>
+      </div>
+
       <div class="opt-card">
         <p class="opt-label">{{ t('compose.options.paperSize') }}</p>
         <div class="seg">
@@ -174,7 +269,7 @@
 
 <script setup>
 import { computed, inject, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { ElMessage } from 'element-plus'
 import { createPaper, getPaper, updatePaper } from '@/api/paper'
@@ -190,6 +285,7 @@ const props = defineProps({
 })
 
 const { t } = useI18n()
+const route = useRoute()
 const router = useRouter()
 
 /** 顶栏左侧插槽：返回按钮由 App.vue 提供承载位置 */
@@ -212,6 +308,8 @@ const PX_PER_MM = 96 / 25.4
 const CANVAS_PADDING = 10
 /** 画布常驻的滚动条槽宽度（与 .canvas 的 scrollbar-gutter: stable 对应），避免出现滚动条时纸张宽度跳变 */
 const SCROLLBAR_GUTTER = 10
+/** 纸张左侧页码槽宽度（固定屏幕像素，不跟缩放走，保证任何档位都看得清） */
+const LABEL_GUTTER = 56
 
 const sizeKey = ref('A4')
 const currentSize = computed(() => PAPER_SIZES.find((s) => s.key === sizeKey.value) || PAPER_SIZES[0])
@@ -233,13 +331,15 @@ const zoomKey = ref('fit')
 const sheetScale = ref(0)
 
 /**
- * 纸张尺寸：按真实 mm 换算成像素，再乘以当前显示比例得到屏幕尺寸；
- * 用 min-height 兜住整页高度 —— 正文超出时纸张会自然变高（而不是溢出到纸外），画布负责滚动
+ * 单页纸张尺寸：按真实 mm 换算成像素，再乘以当前显示比例得到屏幕尺寸。
+ * 每张纸固定为这个高度，内容超出由分页逻辑自动搬到下一张（不再靠 min-height 撑高）
  */
-const sheetSize = ref({ width: 0, minHeight: 0 })
+const sheetSize = ref({ width: 0, height: 0 })
 const sheetStyle = computed(() => ({
-  width: sheetSize.value.width ? `${sheetSize.value.width}px` : '100%',
-  minHeight: sheetSize.value.minHeight ? `${sheetSize.value.minHeight}px` : '60vh',
+  // 容器额外留出左侧页码槽，纸张本身宽度由 --page-w 给出
+  width: sheetSize.value.width ? `${sheetSize.value.width + LABEL_GUTTER}px` : '100%',
+  '--page-w': sheetSize.value.width ? `${sheetSize.value.width}px` : '100%',
+  '--page-h': sheetSize.value.height ? `${sheetSize.value.height}px` : '0px',
   '--sheet-scale': sheetScale.value || 1
 }))
 
@@ -389,6 +489,7 @@ async function load() {
     tags.value = paper.tags || ''
     await nextTick()
     if (sheetRef.value) sheetRef.value.innerHTML = paper.content || ''
+    ensurePageFrame()
   } catch {
     ElMessage.error(t('compose.loadFailed'))
   } finally {
@@ -396,8 +497,13 @@ async function load() {
   }
 }
 
+/** 落库前先摘掉只用于编辑的临时元素（图片描边框、选中态），并把结构规整回「一张纸 = 正文容器」 */
 function currentContent() {
-  return sheetRef.value ? sheetRef.value.innerHTML : ''
+  const sheet = sheetRef.value
+  if (!sheet) return ''
+  clearPick()
+  normalizeStructure()
+  return sheet.innerHTML
 }
 
 /** 正文是否为空：去掉标签后仍有文字，或含图片 / 表格等实体内容 */
@@ -447,15 +553,17 @@ async function save() {
   const result = await persist()
   if (result?.created) {
     // 换成带 ID 的地址：组件按 path 重建，重新加载一次即为服务端保存后的内容
-    router.replace(`/compose/${result.id}`)
+    router.replace(`/app/compose/${result.id}`)
   }
 }
 
-/** 返回：先自动保存当前编辑，再回到组卷列表 */
+/** 返回：先自动保存当前编辑。
+    从「我的试卷」进来的回到我的试卷标签；从「沉浸式组卷」进来的回到试卷列表 */
 async function back() {
   if (recording.value) await finishRecording(true)
   await persist({ silent: true, fallbackTitle: true })
-  router.push('/compose')
+  if (route.query.from === 'resources') router.push('/app/resources?tab=papers')
+  else router.push('/app/compose')
 }
 
 /* ---------- 检索 ---------- */
@@ -505,15 +613,1052 @@ async function goPage(page) {
   }
 }
 
-/** 把题目题干追加到排版区末尾，并滚到底部让改动可见 */
+/** 段落是不是「题与题之间的空行」：既用来定插入位置，也用来放插入后的光标 */
+function isEmptyLine(el) {
+  if (!el || el.nodeType !== 1 || el.tagName !== 'P') return false
+  if (el.textContent.trim()) return false
+  return !el.querySelector('img, svg, table, .katex')
+}
+
+/**
+ * 图片是异步出尺寸的：图还没加载完就分页，量不到溢出，题目就会一直挂在原页。
+ * 所以给每张还没加载完的图挂一次性监听，图一到就重排。
+ */
+function watchImages(root) {
+  root.querySelectorAll('img').forEach((img) => {
+    if (img.dataset.pagWatch) return
+    img.dataset.pagWatch = '1'
+    if (img.complete) return
+    img.addEventListener('load', () => schedulePaginate(60), { once: true })
+    img.addEventListener('error', () => schedulePaginate(60), { once: true })
+  })
+}
+
+/** 把光标放进一个空行（空行用 <br> 撑出行高，不然是零高度） */
+function caretInEmptyLine(line) {
+  if (!line.firstChild) line.appendChild(document.createElement('br'))
+  const range = document.createRange()
+  range.setStart(line, 0)
+  range.collapse(true)
+  const sel = window.getSelection()
+  sel.removeAllRanges()
+  sel.addRange(range)
+  savedRange = range.cloneRange()
+}
+
+/** 题目后面保证留一个空行：插入后光标落在这一行，与 Word 插完内容的行为一致 */
+function ensureLineAfter(block) {
+  const next = block.nextSibling
+  if (next && next.nodeType === 1 && isEmptyLine(next)) return next
+  const line = document.createElement('p')
+  line.appendChild(document.createElement('br'))
+  block.after(line)
+  return line
+}
+
+/** 把题干插到光标所在段落之后；光标不在正文里（例如刚打开试卷）时落到第一页正文末尾 */
 function insert(hit) {
   const sheet = sheetRef.value
   if (!sheet) return
   const block = document.createElement('div')
   block.className = 'q-block'
   block.innerHTML = hit.html
-  sheet.appendChild(block)
-  if (canvasRef.value) canvasRef.value.scrollTop = canvasRef.value.scrollHeight
+
+  const range = activeRange()
+  const target = range && sheet.contains(range.commonAncestorContainer) ? blockOf(range.startContainer) : null
+  // 题目块之间不能互相嵌套：光标落在已有题目块内部时把锚点提到该题目块本身，
+  // 新题目插到它后面成为同级。否则新题目会被塞进老题目里，分页时整块被当作一个单元搬走。
+  const anchor = target?.closest?.('.q-block') || target
+  // 光标在哪一页就插到那一页的正文里（光标落在纸张容器等非正文位置时，退化成该页正文）
+  const ownerBody = anchor?.closest?.('.pg-body') || null
+  const body = ownerBody || pageEls()[0]?.querySelector('.pg-body') || null
+  if (body && anchor && anchor !== body && body.contains(anchor)) {
+    // 光标停在题后空行上时插到空行之前，空行继续留在末尾当光标位，避免连插时堆出一串空行
+    if (isEmptyLine(anchor)) anchor.before(block)
+    else anchor.after(block)
+  } else if (body) {
+    body.appendChild(block)
+  } else {
+    sheet.appendChild(block)
+  }
+
+  // 光标落到题目下一行的空行里，紧接着敲字就是在题下面写
+  // 先抢回焦点再放光标：从检索框点过来时正文没有焦点，光标不显示
+  sheet.focus()
+  caretInEmptyLine(ensureLineAfter(block))
+  watchImages(block)
+  // 新题目可能把这一页顶爆，稍后按页重排；图片加载完还会各自再排一次
+  schedulePaginate(120)
+}
+
+/* ---------- 文字格式（字号 / 行距 / 对齐 / 字形） ---------- */
+
+/** 可选字号：px 为纸上的真实像素（14px 即五号），配合 --sheet-scale 跟着缩放走 */
+const FONT_SIZES = [
+  { key: 'three', px: 21.3, label: 'compose.size.three' },
+  { key: 'four', px: 18.7, label: 'compose.size.four' },
+  { key: 'smallFour', px: 16, label: 'compose.size.smallFour' },
+  { key: 'five', px: 14, label: 'compose.size.five' },
+  { key: 'smallFive', px: 12, label: 'compose.size.smallFive' }
+]
+
+/** 可选行距：直接写进段落的 line-height */
+const LINE_HEIGHTS = [
+  { key: '1.0', label: '1.0' },
+  { key: '1.5', label: '1.5' },
+  { key: '2.0', label: '2.0' }
+]
+
+/** 对齐方式：作用在段落上 */
+const ALIGNMENTS = [
+  { key: 'left', label: 'compose.options.alignLeft', path: 'M2.5 3.5h11M2.5 8h7M2.5 12.5h9' },
+  { key: 'center', label: 'compose.options.alignCenter', path: 'M2.5 3.5h11M4.5 8h7M3.5 12.5h9' },
+  { key: 'right', label: 'compose.options.alignRight', path: 'M2.5 3.5h11M6.5 8h7M4.5 12.5h9' }
+]
+
+/** 光标处的格式，用于高亮工具栏 */
+const formatState = ref({ fontSize: '', lineHeight: '', align: '', bold: false, italic: false, underline: false })
+
+/** 最近一次落在正文里的选区：点工具栏会短暂离开正文，用它兜住光标位置 */
+let savedRange = null
+
+/** 阻止按钮抢走焦点，保住正文里的光标与选区 */
+function keepFocus(event) {
+  event.preventDefault()
+}
+
+/** 当前选区（必须落在正文里才算数） */
+function rangeInSheet() {
+  const sheet = sheetRef.value
+  const sel = window.getSelection()
+  if (!sheet || !sel || !sel.rangeCount) return null
+  const range = sel.getRangeAt(0)
+  return sheet.contains(range.commonAncestorContainer) ? range : null
+}
+
+/** 实际用来改格式的选区：优先当前选区，其次最近一次正文选区（失效则丢弃） */
+function activeRange() {
+  const current = rangeInSheet()
+  if (current) return current
+  const sheet = sheetRef.value
+  if (savedRange && sheet?.contains(savedRange.commonAncestorContainer)) return savedRange
+  return null
+}
+
+const BLOCK_TAGS = new Set(['P', 'DIV', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'LI', 'BLOCKQUOTE', 'TD', 'TH', 'PRE'])
+const BLOCK_SELECTOR = 'p,div,li,h1,h2,h3,h4,h5,h6,td,th,blockquote'
+
+/** 从节点往上找最内层块级元素（段落级格式都作用在它上面） */
+function blockOf(node) {
+  const sheet = sheetRef.value
+  let el = node && node.nodeType === 1 ? node : node?.parentElement || null
+  while (el && el !== sheet) {
+    if (BLOCK_TAGS.has(el.tagName)) return el
+    el = el.parentElement
+  }
+  return null
+}
+
+/** 选区覆盖到的段落（只取最内层，避免父子重复设置） */
+function blocksInRange(range) {
+  const sheet = sheetRef.value
+  if (!sheet) return []
+  const out = []
+  sheet.querySelectorAll(BLOCK_SELECTOR).forEach((el) => {
+    if (!range.intersectsNode(el)) return
+    const inner = Array.from(el.querySelectorAll(BLOCK_SELECTOR))
+    if (inner.some((child) => range.intersectsNode(child))) return
+    out.push(el)
+  })
+  return out
+}
+
+/** 字号：选中文字时只包一层 span，光标收起时改整个段落 */
+function applyFontSize(size) {
+  const range = activeRange()
+  if (!range) return
+  const value = `calc(${size.px}px * var(--sheet-scale))`
+  if (range.collapsed) {
+    const block = blockOf(range.startContainer)
+    if (block) block.style.fontSize = value
+  } else {
+    const span = document.createElement('span')
+    span.style.fontSize = value
+    try {
+      range.surroundContents(span)
+    } catch {
+      // 选区跨了多个段落时 surroundContents 会抛错，改成先取出内容再包 span
+      const frag = range.extractContents()
+      span.appendChild(frag)
+      range.insertNode(span)
+    }
+    const next = document.createRange()
+    next.selectNodeContents(span)
+    const sel = window.getSelection()
+    sel.removeAllRanges()
+    sel.addRange(next)
+    savedRange = next.cloneRange()
+  }
+  formatState.value.fontSize = size.key
+  schedulePaginate()
+}
+
+/** 行距：作用在选区覆盖的段落上 */
+function applyLineHeight(item) {
+  const range = activeRange()
+  if (!range) return
+  blocksInRange(range).forEach((block) => {
+    block.style.lineHeight = item.key
+  })
+  formatState.value.lineHeight = item.key
+  schedulePaginate()
+}
+
+/** 对齐：作用在选区覆盖的段落上 */
+function applyAlign(direction) {
+  const range = activeRange()
+  if (!range) return
+  blocksInRange(range).forEach((block) => {
+    block.style.textAlign = direction
+  })
+  formatState.value.align = direction
+}
+
+/** 加粗 / 斜体 / 下划线：交给浏览器原生命令，局部选中的处理交给它 */
+function execCmd(command) {
+  const sheet = sheetRef.value
+  if (!sheet) return
+  if (!rangeInSheet() && savedRange) {
+    const sel = window.getSelection()
+    sel.removeAllRanges()
+    sel.addRange(savedRange)
+  }
+  sheet.focus()
+  document.execCommand(command)
+  syncFormat()
+}
+
+/** 选区里第一个有文字的位置：选区从容器边界（如空的正文容器）开始时，也能落到真正的内容上 */
+function firstTextInRange(range) {
+  const root = range.commonAncestorContainer
+  const start = root.nodeType === 3 ? root.parentNode : root
+  if (!start) return null
+  const walker = document.createTreeWalker(start, NodeFilter.SHOW_TEXT)
+  let node = walker.nextNode()
+  while (node) {
+    if (node.textContent.trim() && range.intersectsNode(node)) return node
+    node = walker.nextNode()
+  }
+  return null
+}
+
+/** 光标处的字形状态（加粗/斜体/下划线）：看光标所在节点的祖先链，比 queryCommandState 可靠 */
+function textDecorationAt(node) {
+  const sheet = sheetRef.value
+  const state = { bold: false, italic: false, underline: false }
+  let el = node && node.nodeType === 1 ? node : node?.parentElement || null
+  while (el && el !== sheet) {
+    const style = window.getComputedStyle(el)
+    if (el.tagName === 'B' || el.tagName === 'STRONG' || parseInt(style.fontWeight, 10) >= 600) state.bold = true
+    if (el.tagName === 'I' || el.tagName === 'EM' || style.fontStyle === 'italic') state.italic = true
+    if (/underline/.test(style.textDecorationLine || style.textDecoration)) state.underline = true
+    el = el.parentElement
+  }
+  return state
+}
+
+/** 把光标处的格式回填到工具栏高亮 */
+function syncFormat() {
+  const range = activeRange()
+  const state = { fontSize: '', lineHeight: '', align: '', bold: false, italic: false, underline: false }
+  if (range) {
+    // 光标（折叠选区）直接用光标节点；只有跨段选区从空容器边界开始时才需要往内容里找
+    let probe = range.startContainer
+    if (!range.collapsed && probe.nodeType !== 3) probe = firstTextInRange(range) || probe
+    const deco = textDecorationAt(probe)
+    state.bold = deco.bold
+    state.italic = deco.italic
+    state.underline = deco.underline
+    const block = blockOf(probe)
+    if (block) {
+      const style = window.getComputedStyle(block)
+      const fontSize = parseFloat(style.fontSize)
+      const lineHeight = parseFloat(style.lineHeight)
+      if (fontSize) state.fontSize = nearestFontSize(fontSize / (sheetScale.value || 1))
+      if (fontSize && lineHeight) state.lineHeight = nearestLineHeight(lineHeight / fontSize)
+      state.align =
+        style.textAlign === 'center'
+          ? 'center'
+          : style.textAlign === 'right' || style.textAlign === 'end'
+            ? 'right'
+            : 'left'
+    }
+  }
+  formatState.value = state
+}
+
+/** 找不到接近的预设值时不点亮任何芯片（比如纸张默认的 1.85 倍行距） */
+function nearestFontSize(px) {
+  let best = FONT_SIZES[0]
+  FONT_SIZES.forEach((item) => {
+    if (Math.abs(item.px - px) < Math.abs(best.px - px)) best = item
+  })
+  return Math.abs(best.px - px) <= 1 ? best.key : ''
+}
+
+function nearestLineHeight(ratio) {
+  let best = LINE_HEIGHTS[0]
+  LINE_HEIGHTS.forEach((item) => {
+    if (Math.abs(Number(item.key) - ratio) < Math.abs(Number(best.key) - ratio)) best = item
+  })
+  return Math.abs(Number(best.key) - ratio) <= 0.08 ? best.key : ''
+}
+
+function onSelectionChange() {
+  const range = rangeInSheet()
+  if (range) savedRange = range.cloneRange()
+  syncFormat()
+}
+
+/* ---------- 图片：选中 / 缩放 / 拖动 ---------- */
+
+/** 当前选中的图片 */
+let picked = null
+/** 拖动中的状态 */
+let dragging = null
+/** 缩放中的状态 */
+let resizing = null
+
+function frameEl() {
+  return sheetRef.value?.querySelector('.img-frame') || null
+}
+
+/** 取消选中：去掉描边框与图片标记 */
+function clearPick() {
+  frameEl()?.remove()
+  if (picked) picked.classList.remove('is-picked')
+  picked = null
+}
+
+/** 选中图片，并在它上面盖一层描边 + 右下角缩放柄 */
+function pickImage(img) {
+  frameEl()?.remove()
+  if (picked && picked !== img) picked.classList.remove('is-picked')
+  picked = img
+  img.classList.add('is-picked')
+  syncImageFrame()
+}
+
+/** 让描边框跟着图片走（缩放 / 拖动 / 换版面比例 / 分页换页后都要重算） */
+function syncImageFrame() {
+  const sheet = sheetRef.value
+  if (!sheet) return
+  if (!picked || !sheet.contains(picked)) {
+    frameEl()?.remove()
+    return
+  }
+  // 分页后纸张是最靠近图片的定位祖先，描边框要挂到图片所在的那张纸上
+  const page = picked.closest('.pg-page') || sheet
+  let frame = frameEl()
+  if (!frame) {
+    frame = document.createElement('div')
+    frame.className = 'img-frame'
+    frame.contentEditable = 'false'
+    const handle = document.createElement('span')
+    handle.className = 'img-handle'
+    frame.appendChild(handle)
+  }
+  if (frame.parentElement !== page) page.appendChild(frame)
+  const pageRect = page.getBoundingClientRect()
+  const imgRect = picked.getBoundingClientRect()
+  frame.style.left = `${imgRect.left - pageRect.left}px`
+  frame.style.top = `${imgRect.top - pageRect.top}px`
+  frame.style.width = `${imgRect.width}px`
+  frame.style.height = `${imgRect.height}px`
+}
+
+/** 正文里的鼠标按下：缩放柄 → 缩放，图片 → 选中/拖动，其他 → 取消选中并交给浏览器放光标 */
+function onSheetMouseDown(event) {
+  const target = event.target
+  if (target.classList?.contains('img-handle')) {
+    event.preventDefault()
+    startResize(event)
+    return
+  }
+  if (target.tagName === 'IMG') {
+    event.preventDefault()
+    if (picked === target) startDrag(event)
+    else pickImage(target)
+    return
+  }
+  if (picked) clearPick()
+  // 点在纸张的页边距或页与页之间的缝隙上：光标落到该页正文末尾，避免正文外出现游离文字
+  const page = target.closest?.('.pg-page')
+  if (page && !target.closest('.pg-body')) {
+    event.preventDefault()
+    const body = page.querySelector('.pg-body')
+    if (body) caretAtEnd(body)
+    return
+  }
+  if (!page && target.classList?.contains('sheet')) event.preventDefault()
+}
+
+/** 把光标落到容器内容的末尾 */
+function caretAtEnd(container) {
+  const range = document.createRange()
+  range.selectNodeContents(container)
+  range.collapse(false)
+  const sel = window.getSelection()
+  sel.removeAllRanges()
+  sel.addRange(range)
+  savedRange = range.cloneRange()
+}
+
+/** 图片所在的包含块内容宽度：宽度按百分比存，换版面时图片跟着纸张等比变 */
+function containerWidthOf(img) {
+  const parent = img.parentElement
+  if (!parent) return 0
+  const style = window.getComputedStyle(parent)
+  return parent.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight)
+}
+
+function startResize(event) {
+  const img = picked
+  if (!img) return
+  resizing = {
+    img,
+    startX: event.clientX,
+    startWidth: img.getBoundingClientRect().width,
+    containerWidth: containerWidthOf(img) || 1
+  }
+  document.addEventListener('mousemove', onResizeMove)
+  document.addEventListener('mouseup', onResizeUp)
+}
+
+function onResizeMove(event) {
+  if (!resizing) return
+  const { img, startX, startWidth, containerWidth } = resizing
+  // 最大不超过正文栏宽，免得存下一个 >100% 的宽度换版面时突然撑破纸张
+  const width = Math.max(24, Math.min(containerWidth, startWidth + (event.clientX - startX)))
+  img.style.width = `${(width / containerWidth) * 100}%`
+  img.style.height = 'auto'
+  syncImageFrame()
+}
+
+function onResizeUp() {
+  document.removeEventListener('mousemove', onResizeMove)
+  document.removeEventListener('mouseup', onResizeUp)
+  resizing = null
+  // 图片高度变了，这一页可能装不下
+  schedulePaginate()
+}
+
+function startDrag(event) {
+  if (!picked) return
+  dragging = { img: picked, x: event.clientX, y: event.clientY, moved: false }
+  document.addEventListener('mousemove', onDragMove)
+  document.addEventListener('mouseup', onDragUp)
+}
+
+function onDragMove(event) {
+  if (!dragging) return
+  if (!dragging.moved && Math.hypot(event.clientX - dragging.x, event.clientY - dragging.y) < 4) return
+  if (!dragging.moved) {
+    dragging.moved = true
+    // 拖动时先撤掉描边框，免得它挡住落点的位置判定
+    frameEl()?.remove()
+  }
+  dragging.img.style.opacity = '0.45'
+}
+
+function onDragUp(event) {
+  document.removeEventListener('mousemove', onDragMove)
+  document.removeEventListener('mouseup', onDragUp)
+  const state = dragging
+  dragging = null
+  if (!state) return
+  state.img.style.opacity = ''
+  if (!state.moved) {
+    syncImageFrame()
+    return
+  }
+  // 松手位置就是新的落点：把图片移过去
+  const range = caretRangeAt(event.clientX, event.clientY)
+  const sheet = sheetRef.value
+  if (!range || !sheet?.contains(range.startContainer) || range.startContainer === state.img) {
+    syncImageFrame()
+    return
+  }
+  range.insertNode(state.img)
+  const after = document.createRange()
+  after.setStartAfter(state.img)
+  after.collapse(true)
+  const sel = window.getSelection()
+  sel.removeAllRanges()
+  sel.addRange(after)
+  syncImageFrame()
+  schedulePaginate()
+}
+
+/** 取屏幕上某点对应的文本位置（拖放图片时用来定位落点） */
+function caretRangeAt(x, y) {
+  if (document.caretRangeFromPoint) return document.caretRangeFromPoint(x, y)
+  if (document.caretPositionFromPoint) {
+    const pos = document.caretPositionFromPoint(x, y)
+    if (!pos) return null
+    const range = document.createRange()
+    range.setStart(pos.offsetNode, pos.offset)
+    range.collapse(true)
+    return range
+  }
+  return null
+}
+
+/** 卸载或中途打断时清掉挂在 document 上的拖拽监听 */
+function stopPointer() {
+  document.removeEventListener('mousemove', onResizeMove)
+  document.removeEventListener('mouseup', onResizeUp)
+  document.removeEventListener('mousemove', onDragMove)
+  document.removeEventListener('mouseup', onDragUp)
+  dragging = null
+  resizing = null
+}
+
+/* ---------- 正文容器 ---------- */
+
+/** 判断节点是不是「结构容器」：正文 / 整张纸 / 纸张本体 */
+function frameKind(el) {
+  if (!el || el.nodeType !== 1) return null
+  if (el === sheetRef.value) return 'sheet'
+  if (el.classList.contains('pg-page')) return 'pg-page'
+  if (el.classList.contains('pg-body')) return 'pg-body'
+  return null
+}
+
+/**
+ * 光标直接落在正文容器上时按回车，浏览器会连容器属性一起克隆出第二个同样的容器，
+ * 所以这里自己造一个段落来换行，结构容器始终只有一个。
+ */
+function onSheetKeydown(event) {
+  if (event.key !== 'Enter' || event.shiftKey || event.isComposing) return
+  const range = rangeInSheet()
+  if (!range) return
+  const owner = blockOf(range.startContainer)
+  const kind = frameKind(owner)
+  if (!kind) return
+  // 光标落在整张纸或纸张容器的空白处：拦住回车，免得浏览器把整页/整个容器克隆一份
+  if (kind === 'sheet' || kind === 'pg-page') {
+    event.preventDefault()
+    return
+  }
+
+  const container = range.startContainer
+  if (container.nodeType === 3 && container.parentElement === owner) {
+    // 把这段文字整体裹进一个真正的段落，光标位置完全不动，
+    // 回车交给浏览器去拆这个段落 —— 只要它拆的不是正文容器本身就不会被复制
+    const paragraph = document.createElement('p')
+    owner.insertBefore(paragraph, container)
+    paragraph.appendChild(container)
+    return
+  }
+
+  // 兜底：光标落在容器与子节点之间这类没有段落包裹的位置，就在光标处插一个空行并拦下回车
+  // （注意不能把容器里已有的内容搬进新段落，否则整页内容会被裹成一个巨型段落，分页就再也切不开）
+  event.preventDefault()
+  const paragraph = document.createElement('p')
+  paragraph.appendChild(document.createElement('br'))
+  const at = container === owner ? range.startOffset : owner.childNodes.length
+  owner.insertBefore(paragraph, owner.childNodes[at] || null)
+  const caret = document.createRange()
+  caret.setStart(paragraph, 0)
+  caret.collapse(true)
+  const sel = window.getSelection()
+  sel.removeAllRanges()
+  sel.addRange(caret)
+}
+
+/* ---------- 分页（内容超出一页时自动翻到下一张纸） ---------- */
+
+/** 造一张纸：只有正文容器 */
+function createPage() {
+  const page = document.createElement('div')
+  page.className = 'pg-page'
+  const body = document.createElement('div')
+  body.className = 'pg-body'
+  body.dataset.ph = t('compose.doc.placeholder')
+  page.appendChild(body)
+  return page
+}
+
+/** 所有纸张，按文档顺序 */
+function pageEls() {
+  const sheet = sheetRef.value
+  return sheet ? Array.from(sheet.querySelectorAll('.pg-page')) : []
+}
+
+/** 页码写进 data-page，由 CSS 的 ::after 渲染到纸张左侧 */
+function labelPages() {
+  pageEls().forEach((page, index) => {
+    page.dataset.page = t('compose.doc.page', { n: index + 1 })
+  })
+}
+
+/**
+ * 把结构规整回「一张纸 = 一个正文容器」：
+ * 合并被浏览器克隆出来的重复正文容器、把散落在纸张上的内容收进正文。
+ * 只在结构真的不对时才动 DOM（避免不必要的选区丢失）。
+ */
+function normalizeStructure() {
+  const pages = pageEls()
+  pages.forEach((page) => {
+    // 老试卷里遗留的页眉页脚：直接丢掉，不要把里面的文字并进正文
+    page.querySelectorAll(':scope > .pg-head, :scope > .pg-foot').forEach((el) => el.remove())
+    let body = page.querySelector(':scope > .pg-body')
+    if (!body) {
+      body = document.createElement('div')
+      body.className = 'pg-body'
+      body.dataset.ph = t('compose.doc.placeholder')
+      page.appendChild(body)
+    }
+    page.querySelectorAll(':scope > .pg-body').forEach((extra) => {
+      if (extra === body) return
+      while (extra.firstChild) body.appendChild(extra.firstChild)
+      extra.remove()
+    })
+    Array.from(page.children).forEach((child) => {
+      if (child === body) return
+      body.appendChild(child)
+    })
+  })
+}
+
+/** 保证纸张是「一张纸 = 正文」，老试卷的纯正文会被收拢进第一页正文 */
+function ensurePageFrame() {
+  const sheet = sheetRef.value
+  if (!sheet) return
+  if (!sheet.querySelector('.pg-page')) {
+    // 老数据：纸张下直接是内容（或旧的 .pg-head/.pg-body/.pg-foot 结构），
+    // 正文整体收进新首页，遗留的页眉页脚丢弃
+    const oldBody = sheet.querySelector(':scope > .pg-body')
+    sheet.querySelectorAll(':scope > .pg-head, :scope > .pg-foot').forEach((el) => el.remove())
+    const page = createPage()
+    const body = page.querySelector(':scope > .pg-body')
+    if (oldBody) {
+      while (oldBody.firstChild) body.appendChild(oldBody.firstChild)
+      oldBody.remove()
+    }
+    Array.from(sheet.children).forEach((node) => {
+      if (node.classList.contains('img-frame')) {
+        node.remove()
+        return
+      }
+      body.appendChild(node)
+    })
+    sheet.appendChild(page)
+  }
+  normalizeStructure()
+  labelPages()
+}
+
+/** 只用于编辑的临时元素：图片描边框 */
+function isFrameEl(el) {
+  return el.classList.contains('img-frame')
+}
+
+/** 同一个题目块被换页后要接着排：新造的容器记回源容器，才能认出是同一块 */
+const hostSource = new WeakMap()
+
+/** 可以切成两截的纯文字容器；表格、列表项等特殊结构整体换页 */
+const SPLIT_TAGS = new Set(['P', 'DIV', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'BLOCKQUOTE'])
+
+/** 行内原子元素：公式 / 图片 / 表格。拆分点只能落在它们两侧，切进去会把内容切坏 */
+function isAtomicInline(el) {
+  const tag = el.tagName
+  if (tag === 'IMG' || tag === 'SVG' || tag === 'TABLE' || tag === 'MATH' || tag === 'VIDEO' || tag === 'CANVAS' || tag === 'IFRAME') return true
+  return el.classList.contains('katex') || el.classList.contains('katex-display')
+}
+
+/**
+ * 正文里的排版单元（按文档顺序）：能独立换页的最小块级元素。
+ * - q-block 的每个子元素各算一个单元 —— 题目里的文字段落可以续排当前页，只有放不下的图片才换页
+ * - 其余正文直接子元素自身算一个单元
+ * unit.host 记录所属的题目块，跨页时用同源容器接着排
+ */
+function collectUnits(pages) {
+  const units = []
+  pages.forEach((page) => {
+    const body = page.querySelector(':scope > .pg-body')
+    if (!body) return
+    Array.from(body.childNodes).forEach((node) => {
+      if (node.nodeType === 3) {
+        // 正文里的裸文字包进段落，避免游离文字不参与换页（空白节点无意义，直接丢）
+        if (!node.textContent.trim()) {
+          node.remove()
+          return
+        }
+        const p = document.createElement('p')
+        body.replaceChild(p, node)
+        p.appendChild(node)
+        units.push({ el: p, host: null })
+        return
+      }
+      if (node.nodeType !== 1) return
+      if (isFrameEl(node)) {
+        node.remove()
+        return
+      }
+      if (node.classList.contains('q-block')) {
+        const source = hostSource.get(node) || node
+        const children = Array.from(node.childNodes)
+        // 容器每页重建，避免换页后残留空壳
+        node.remove()
+        children.forEach((child) => {
+          if (child.nodeType === 3) {
+            if (!child.textContent.trim()) return
+            const p = document.createElement('p')
+            p.appendChild(child)
+            units.push({ el: p, host: source })
+            return
+          }
+          if (child.nodeType !== 1) return
+          // 分页时钉光标的零宽标记也当作单元跟着排，否则会被搬空容器一起丢掉
+          units.push({ el: child, host: source })
+        })
+        return
+      }
+      units.push({ el: node, host: null })
+    })
+  })
+  return units
+}
+
+/** 本页上代表某个题目块的容器：同一块第一次用到时按需克隆一个挂到该页正文里 */
+function containerFor(source, body, map) {
+  if (!source) return body
+  let box = map.get(source)
+  if (!box) {
+    box = source.cloneNode(false)
+    hostSource.set(box, source)
+    map.set(source, box)
+    body.appendChild(box)
+  }
+  return box
+}
+
+/** 块内的候选拆分点（文档顺序）：文字逐字给点，原子元素只在其前后给点 */
+function splitPoints(block) {
+  const points = []
+  const walk = (parent) => {
+    Array.from(parent.childNodes).forEach((child, index) => {
+      if (child.nodeType === 3) {
+        for (let i = 0; i <= child.data.length; i += 1) points.push({ node: child, offset: i })
+        return
+      }
+      if (child.nodeType !== 1) return
+      if (isAtomicInline(child) || child.tagName === 'BR') {
+        points.push({ node: parent, offset: index })
+        points.push({ node: parent, offset: index + 1 })
+        return
+      }
+      walk(child)
+    })
+  }
+  walk(block)
+  return points
+}
+
+/** 从块首到该点的内容是否都还在 limitY 以内（随点后移单调变假，可以二分） */
+function withinLimit(block, point, limitY) {
+  const range = document.createRange()
+  try {
+    range.setStart(block, 0)
+    range.setEnd(point.node, point.offset)
+  } catch {
+    return false
+  }
+  let bottom = -Infinity
+  for (const rect of range.getClientRects()) {
+    if (rect.height <= 0 && rect.width <= 0) continue
+    bottom = Math.max(bottom, rect.bottom)
+  }
+  return bottom <= limitY + 0.5
+}
+
+/** 片段里是否有看得见的内容（文字或图片/公式/表格） */
+function hasVisible(frag) {
+  if (frag.textContent && frag.textContent.replace(/[\s\u200b]/g, '')) return true
+  return Boolean(frag.querySelector('img, svg, table, math, video, canvas, .katex'))
+}
+
+/**
+ * 把块内「装得下的部分」留在当前页，装不下的部分切给下一页 —— 行级拆分，与 Word 一致。
+ * 切点只落在行边界上，且不会切进公式/图片；前半段为空（一行都放不下）时整体换页。
+ * @returns {boolean} 是否真的切开
+ */
+function splitBlock(el, limitY) {
+  if (!SPLIT_TAGS.has(el.tagName) || el.classList.contains('q-block')) return false
+  const points = splitPoints(el)
+  if (points.length < 2) return false
+  let lo = 0
+  let hi = points.length - 1
+  let best = -1
+  while (lo <= hi) {
+    const mid = (lo + hi) >> 1
+    if (withinLimit(el, points[mid], limitY)) {
+      best = mid
+      lo = mid + 1
+    } else {
+      hi = mid - 1
+    }
+  }
+  // 首尾都说明「一行都放不下」或「其实全放得下」，都不该切
+  if (best <= 0 || best >= points.length - 1) return false
+  const point = points[best]
+  const range = document.createRange()
+  range.setStart(el, 0)
+  range.setEnd(point.node, point.offset)
+  if (!hasVisible(range.cloneContents())) return false
+  const head = el.cloneNode(false)
+  head.appendChild(range.extractContents())
+  el.parentNode.insertBefore(head, el)
+  // 拆分处不留段间距：两部分回到同一页时行距连续，看不出被切过
+  head.style.marginTop = '0'
+  head.style.marginBottom = '0'
+  el.style.marginTop = '0'
+  el.style.marginBottom = '0'
+  return true
+}
+
+/** 非闭合选区（跨块选择）没法用零宽标记钉住，退回节点引用记录 */
+function captureSelection() {
+  const sheet = sheetRef.value
+  const sel = window.getSelection()
+  if (!sheet || !sel || !sel.rangeCount) return null
+  const range = sel.getRangeAt(0)
+  if (range.collapsed) return null
+  const node = range.startContainer
+  if (!sheet.contains(node)) return null
+  if (node.parentElement?.closest?.('.img-frame')) return null
+  return {
+    start: range.startContainer,
+    startOffset: range.startOffset,
+    end: range.endContainer,
+    endOffset: range.endOffset,
+    page: node.parentElement?.closest?.('.pg-page') || null
+  }
+}
+
+function clampOffset(node, offset) {
+  const max = node.nodeType === 3 ? node.data.length : node.childNodes.length
+  return Math.max(0, Math.min(offset, max))
+}
+
+/** 还原选区；若选区被搬到了另一张纸上，把那张纸滚进视野 */
+function restoreSelection(state) {
+  if (!state) return
+  const sheet = sheetRef.value
+  if (!sheet || !sheet.contains(state.start) || !sheet.contains(state.end)) return
+  const range = document.createRange()
+  try {
+    range.setStart(state.start, clampOffset(state.start, state.startOffset))
+    range.setEnd(state.end, clampOffset(state.end, state.endOffset))
+  } catch {
+    return
+  }
+  const sel = window.getSelection()
+  sel.removeAllRanges()
+  sel.addRange(range)
+  savedRange = range.cloneRange()
+  // 分页时把正文滚动拉回了顶部，这里按选区起点再滚一次，保证选区可见
+  const at = state.start.nodeType === 3 ? state.start.parentElement : state.start
+  at?.scrollIntoView?.({ block: 'nearest' })
+}
+
+/**
+ * 光标是个闭合点，分页会搬动节点、还会把段落切成两截，用节点引用记会错位。
+ * 所以先在光标处插一个零宽的标记，排完整页再按标记把光标收回来。
+ */
+function plantCaretMark() {
+  const sheet = sheetRef.value
+  const sel = window.getSelection()
+  if (!sheet || !sel || !sel.rangeCount) return null
+  const range = sel.getRangeAt(0)
+  if (!range.collapsed) return null
+  const node = range.startContainer
+  if (!sheet.contains(node)) return null
+  if (node.parentElement?.closest?.('.img-frame')) return null
+  const mark = document.createElement('span')
+  mark.className = 'caret-mark'
+  const offset = range.startOffset
+  if (node.nodeType === 3) {
+    if (offset >= node.data.length) node.parentNode.insertBefore(mark, node.nextSibling)
+    else node.parentNode.insertBefore(mark, node.splitText(offset))
+  } else {
+    node.insertBefore(mark, node.childNodes[offset] || null)
+  }
+  return { mark, page: mark.closest('.pg-page') }
+}
+
+/** 按标记收回光标；标记被搬到另一张纸上时顺带把那张纸滚进视野 */
+function pickupCaretMark(state) {
+  const mark = state?.mark
+  if (!mark?.isConnected) return
+  const parent = mark.parentNode
+  const index = Array.prototype.indexOf.call(parent.childNodes, mark)
+  const after = parent.childNodes[index + 1] || null
+  const before = parent.childNodes[index - 1] || null
+  mark.remove()
+  const range = document.createRange()
+  // 挨着文字节点落光标，后续 execCommand 才不会在段落边界上出怪
+  if (after && after.nodeType === 3) range.setStart(after, 0)
+  else if (before && before.nodeType === 3) range.setStart(before, before.data.length)
+  else range.setStart(parent, Math.min(index, parent.childNodes.length))
+  range.collapse(true)
+  const sel = window.getSelection()
+  sel.removeAllRanges()
+  sel.addRange(range)
+  savedRange = range.cloneRange()
+  // 分页时把正文滚动拉回了顶部，这里按光标再滚一次：光标必须落回视野
+  const at = range.startContainer.nodeType === 3 ? range.startContainer.parentElement : range.startContainer
+  at?.scrollIntoView?.({ block: 'nearest' })
+}
+
+/**
+ * 按页容量把正文分摊到各张纸上 —— 行级换页，与 Word 的行为一致：
+ * 文字续排当前页，只有放不下的整行、图片、公式才落到下一页；
+ * 因此不会出现「一道题整体被顶下去、上一页空一大片」。
+ * 每张纸都是「正文撑满整页」，各页容量一致。
+ */
+function paginate() {
+  const sheet = sheetRef.value
+  if (!sheet) return
+  normalizeStructure()
+  const pages = pageEls()
+  if (!pages.length) return
+
+  // 光标（选区）标记必须在「拆容器之前」钉好：collectUnits 会把 q-block 摘下来重挂，
+  // 摘的那一瞬间选区所在节点是脱离文档的，这时再钉标记会因为「节点不在文档里」而放弃，
+  // 光标随即掉到页首。先钉好，标记会跟着段落一起被摘下去、再挂进新容器。
+  const selection = captureSelection()
+  const mark = selection ? null : plantCaretMark()
+
+  const units = collectUnits(pages)
+  if (!units.length) {
+    // 正文被清空：只留第一页
+    if (mark) pickupCaretMark(mark)
+    if (pages.length > 1) pages.slice(1).forEach((page) => page.remove())
+    labelPages()
+    return
+  }
+
+  const bodies = pages.map((page) => page.querySelector(':scope > .pg-body'))
+  const maps = pages.map(() => new Map())
+  let pageIndex = 0
+  let lastUsed = 0
+  let start = 0
+  let guard = 0
+
+  const ensurePage = (index) => {
+    while (pages.length <= index) {
+      const page = createPage()
+      sheet.appendChild(page)
+      pages.push(page)
+      bodies.push(page.querySelector(':scope > .pg-body'))
+      maps.push(new Map())
+    }
+  }
+
+  try {
+    while (start < units.length && guard < 200) {
+      guard += 1
+      ensurePage(pageIndex)
+      const body = bodies[pageIndex]
+      const map = maps[pageIndex]
+      // 光标打字贴到页底时，浏览器会把 overflow:hidden 的正文容器滚起来让光标可见；
+      // 滚动会整体平移容器里的 rect，量出来的底边全落在页内，分页就会误判成「都放得下」。
+      // 所以量之前先把滚动拉回顶部（分页跑完还会按光标把该页滚回视野）。
+      body.scrollTop = 0
+
+      // 1) 先把还没落页的单元全挂到本页（只写不读，避免每个单元都触发一次重排）
+      for (let i = start; i < units.length; i += 1) {
+        containerFor(units[i].host, body, map).appendChild(units[i].el)
+      }
+      // 2) 再一次性读数：本页正文底边 + 每个单元的底边
+      const limitY = body.getBoundingClientRect().bottom
+      const bottoms = []
+      for (let i = start; i < units.length; i += 1) bottoms.push(units[i].el.getBoundingClientRect().bottom)
+      let cut = -1
+      for (let k = 0; k < bottoms.length; k += 1) {
+        // 钉光标的零宽标记不算越界，否则光标会被当成内容挪走甚至丢掉
+        if (units[start + k].el.classList.contains('caret-mark')) continue
+        if (bottoms[k] > limitY + 0.5) {
+          cut = k
+          break
+        }
+      }
+      if (cut < 0) {
+        // 剩下的内容本页全放得下
+        lastUsed = pageIndex
+        break
+      }
+
+      const index = start + cut
+      const unit = units[index]
+      if (splitBlock(unit.el, limitY)) {
+        // 前半段留在本页，后半段（unit.el 本体）挪到下一页接着排
+        lastUsed = pageIndex
+        unit.el.remove()
+        start = index
+      } else if (cut === 0) {
+        // 本页还空着仍放不下（超长图片、超长表格）：让它在本页向上溢出，后面的内容从下一页接着排
+        lastUsed = pageIndex
+        start = index + 1
+      } else {
+        // 本页已排了能排下的部分，这一单元（图片/表格等不可拆的整块）挪到下一页
+        lastUsed = pageIndex
+        start = index
+      }
+
+      // 离开本页前清掉被搬空、只剩外壳的题目容器
+      map.forEach((box, source) => {
+        if (box.childNodes.length) return
+        box.remove()
+        map.delete(source)
+      })
+      pageIndex += 1
+    }
+
+    // 回收没用到的尾页
+    while (pages.length > lastUsed + 1) {
+      const page = pages.pop()
+      bodies.pop()
+      maps.pop()
+      page.remove()
+    }
+    labelPages()
+    syncImageFrame()
+  } finally {
+    if (mark) pickupCaretMark(mark)
+    else restoreSelection(selection)
+  }
+}
+
+let paginateTimer = null
+
+/** 重排有延迟：每次敲字都重排会打断输入，也会让光标乱跳 */
+function schedulePaginate(delay = 220) {
+  clearTimeout(paginateTimer)
+  paginateTimer = setTimeout(() => {
+    paginateTimer = null
+    paginate()
+  }, delay)
+}
+
+/** 输入内容变化后重排；中文输入法组合期间不能动 DOM，交给 compositionend 收尾 */
+function onSheetInput(event) {
+  if (event.isComposing) return
+  // 打字贴到页底时正文先溢出、被裁掉，重排越快越快看到续排结果
+  schedulePaginate(90)
 }
 
 /* ---------- 画布尺寸 ---------- */
@@ -526,7 +1671,8 @@ function insert(hit) {
 function fitSheet() {
   const canvas = canvasRef.value
   if (!canvas) return
-  const availW = Math.max(240, canvas.clientWidth - CANVAS_PADDING * 2 - SCROLLBAR_GUTTER)
+  // 横向再扣掉左侧页码槽，保证适配档下「纸张 + 页码」整好落在画布内
+  const availW = Math.max(240, canvas.clientWidth - CANVAS_PADDING * 2 - SCROLLBAR_GUTTER - LABEL_GUTTER)
   const availH = Math.max(240, canvas.clientHeight - CANVAS_PADDING * 2)
   const scale =
     zoomKey.value === 'fit'
@@ -534,10 +1680,15 @@ function fitSheet() {
       : Number(zoomKey.value)
   sheetScale.value = scale
   const size = currentSize.value
+  // 每张纸固定为一整页的真实尺寸，超出部分交给分页
   sheetSize.value = {
     width: Math.round(size.w * PX_PER_MM * scale),
-    minHeight: Math.round(size.h * PX_PER_MM * scale)
+    height: Math.round(size.h * PX_PER_MM * scale)
   }
+  // 换版面/缩放后，图片描边框与工具栏高亮都跟着重算；页容量变了则要重排
+  syncImageFrame()
+  syncFormat()
+  schedulePaginate()
 }
 
 let observer = null
@@ -550,7 +1701,15 @@ onMounted(async () => {
   }
   window.addEventListener('keydown', onSpaceDown)
   window.addEventListener('keyup', onSpaceUp)
+  window.addEventListener('resize', syncImageFrame)
+  document.addEventListener('selectionchange', onSelectionChange)
   await load()
+  // 等纸张尺寸落到 DOM 上再建页并分页，否则量出来的页容量是错的
+  await nextTick()
+  ensurePageFrame()
+  // 老试卷里可能带还没加载完的图，同样要等图出尺寸后再定版
+  watchImages(sheetRef.value)
+  paginate()
 })
 
 onBeforeUnmount(() => {
@@ -558,6 +1717,11 @@ onBeforeUnmount(() => {
   observer = null
   window.removeEventListener('keydown', onSpaceDown)
   window.removeEventListener('keyup', onSpaceUp)
+  window.removeEventListener('resize', syncImageFrame)
+  document.removeEventListener('selectionchange', onSelectionChange)
+  clearPick()
+  stopPointer()
+  clearTimeout(paginateTimer)
   clearTimeout(spaceTimer)
   clearInterval(recTimer)
   recorder?.stop(true)
@@ -621,7 +1785,7 @@ html.dark .editor {
 .search-card {
   display: flex;
   flex-direction: column;
-  flex: 0 0 448px;
+  flex: 0 0 472px;
   /* 高度与排版区对齐：三栏同高，输入条始终贴在卡片底部 */
   padding: 14px;
   border: 1px solid var(--c-border);
@@ -986,28 +2150,85 @@ html.dark .editor {
   scrollbar-gutter: stable;
 }
 
-/* 纸张：真实尺寸 × 显示比例写入内联样式，正文超出时纸张自然变高；正文可直接编辑 */
+/* 纸张容器：只负责纵向排列多张纸，本身透明无边框；左侧留出页码槽 */
 .sheet {
-  height: auto;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  /* 页面靠右排，页宽由内联 --page-w 给出，左侧空出的宽度正好放页码 */
+  align-items: flex-end;
+  gap: calc(22px * var(--sheet-scale));
   /* 窄于画布时由 auto 外边距居中，宽于画布时退化为 0 贴左缘（见 .canvas 注释） */
   margin: 0 auto;
-  padding: calc(68px * var(--sheet-scale)) calc(72px * var(--sheet-scale));
-  border-radius: 2px;
-  background: #ffffff;
   color: #141413;
-  box-shadow: 0 1px 3px rgba(20, 20, 19, 0.14), 0 18px 40px -22px rgba(20, 20, 19, 0.4);
   /* 试卷正文排版：中文宋体五号（10.5pt = 14px），数字/英文由字体栈回落命中 Times New Roman。
      浏览器按字符逐个匹配字体，所以西文走 TNR、汉字走宋体，无需额外拆分 span。
      字号乘 --sheet-scale 是为了配合缩放：纸张等比缩小时字号同步缩，五号字在纸上的占比才正确 */
   font-family: "Times New Roman", "SimSun", "宋体", "Songti SC", serif;
   font-size: calc(14px * var(--sheet-scale));
   line-height: 1.85;
+  /* 光标：用主题橙描出来，落在纸面上一眼能看到 */
+  caret-color: var(--c-orange);
+  cursor: text;
   outline: none;
 }
 
-.sheet:empty::before {
-  content: attr(data-placeholder);
-  color: #a9a79e;
+/* 单张纸：固定为一页的真实高度 × 显示比例，内容超出由分页逻辑搬到下一页，不撑破纸张 */
+.sheet :deep(.pg-page) {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  flex: none;
+  width: var(--page-w);
+  height: var(--page-h);
+  padding: calc(68px * var(--sheet-scale)) calc(72px * var(--sheet-scale));
+  border-radius: 2px;
+  background: #ffffff;
+  box-shadow: 0 1px 3px rgba(20, 20, 19, 0.14), 0 18px 40px -22px rgba(20, 20, 19, 0.4);
+}
+
+/* 页码：贴在纸张左侧空白槽里，不随缩放变字号（缩放档太小会看不清）。
+   sticky 让它吸附在画布上沿：纸张滑上去时页码不会跟着滚出可视区，始终能看出当前是第几页。
+   它按零高 flex 项参与纸张布局（order:-1 + height:0），再用 translateY 把视觉位置校正回
+   改动前的 4px×缩放，所以静止位置不变、正文容量与分页结果也不受影响 */
+.sheet :deep(.pg-page)::after {
+  content: attr(data-page);
+  /* 作为纸张内第一个 flex 项参与布局（order:-1、零高），但视觉上贴在左上角 */
+  position: sticky;
+  order: -1;
+  flex: none;
+  height: 0;
+  min-height: 0;
+  /* 吸附点：与下面的静止位置校正同一个量。吸附后页码正好落在「纸张页首贴住画布上沿」的高度，
+     静止时（纸张页首在画布上沿）又略高于吸附点，所以开始吸附的瞬间没有跳变 */
+  top: calc(64px * var(--sheet-scale));
+  /* 静止位置校正：抵消顶部内边距，并把标签推回纸张左侧的页码槽（槽宽固定 56px，不随缩放） */
+  transform: translateY(calc(-64px * var(--sheet-scale)));
+  margin-left: calc(-56px - 72px * var(--sheet-scale));
+  width: 56px;
+  padding-right: 14px;
+  box-sizing: border-box;
+  text-align: right;
+  font-size: 12px;
+  line-height: 1.5;
+  color: #b3b1a9;
+  white-space: nowrap;
+  pointer-events: none;
+  user-select: none;
+}
+
+/* 正文容器：撑满整张纸，空态时给出输入提示；
+   overflow 裁掉分页瞬间溢出的那几行，避免纸面被顶破（分页逻辑随后接手） */
+.sheet :deep(.pg-body) {
+  flex: 1 1 auto;
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.sheet :deep(.pg-body:empty::before) {
+  content: attr(data-ph);
+  color: #b3b1a9;
 }
 
 /* 以下正文内部间距同样乘 --sheet-scale，跟着字号一起缩，保证纸张整体比例一致 */
@@ -1017,6 +2238,34 @@ html.dark .editor {
 
 .sheet :deep(img) {
   max-width: 100%;
+  cursor: default;
+}
+
+/* 选中的图片：空心橙描边由 .img-frame 负责，这里只把光标换成可拖动的形状 */
+.sheet :deep(img.is-picked) {
+  cursor: move;
+}
+
+/* 图片编辑框：盖在选中图片上的描边 + 右下角缩放柄（框本身不吃鼠标，点击仍落到图片上） */
+.sheet :deep(.img-frame) {
+  position: absolute;
+  z-index: 3;
+  pointer-events: none;
+  box-shadow: 0 0 0 1.5px var(--c-orange);
+  border-radius: 2px;
+}
+
+.sheet :deep(.img-handle) {
+  position: absolute;
+  right: -5px;
+  bottom: -5px;
+  width: 11px;
+  height: 11px;
+  border: 1.5px solid var(--c-orange);
+  border-radius: 2px;
+  background: #ffffff;
+  pointer-events: auto;
+  cursor: nwse-resize;
 }
 
 .sheet :deep(table) {
@@ -1034,17 +2283,9 @@ html.dark .editor {
   margin: calc(12px * var(--sheet-scale)) 0;
 }
 
-/* 插入的题目块之间留出间距，视觉上分区 */
+/* 插入的题目块之间留出间距，视觉上分区（不画分割线） */
 .sheet :deep(.q-block) {
   margin-bottom: calc(18px * var(--sheet-scale));
-  padding-bottom: calc(14px * var(--sheet-scale));
-  border-bottom: 1px dashed #e2e0d6;
-}
-
-.sheet :deep(.q-block:last-child) {
-  margin-bottom: 0;
-  padding-bottom: 0;
-  border-bottom: none;
 }
 
 /* ---------- 右：选项区 ---------- */
@@ -1052,7 +2293,7 @@ html.dark .editor {
   display: flex;
   flex-direction: column;
   gap: 12px;
-  flex: 0 0 264px;
+  flex: 0 0 288px;
   min-height: 0;
   overflow-y: auto;
 }
@@ -1073,6 +2314,108 @@ html.dark .editor {
   letter-spacing: 0.09em;
   text-transform: uppercase;
   color: var(--c-mid-gray);
+}
+
+/* ---------- 文字格式工具栏 ---------- */
+.fmt-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+}
+
+.fmt-row + .fmt-row {
+  margin-top: 6px;
+}
+
+.fmt-tag {
+  flex: none;
+  width: 28px;
+  padding-top: 6px;
+  font-family: var(--font-body);
+  font-size: 10.5px;
+  line-height: 1.2;
+  color: var(--c-mid-gray);
+}
+
+.fmt-chips {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  flex: 1;
+  min-width: 0;
+}
+
+.fmt-chip,
+.fmt-icon {
+  border: 1px solid var(--c-border);
+  border-radius: var(--radius-sm);
+  background: var(--c-surface);
+  color: var(--c-mid-gray);
+  font-family: var(--font-heading);
+  cursor: pointer;
+  /* 面板改宽后不再留空白：同一行内的选项等分当前宽度，跟着栏宽自适应 */
+  flex: 1 1 0;
+  min-width: 0;
+  transition: border-color 0.18s var(--ease-soft), background 0.18s var(--ease-soft),
+    color 0.18s var(--ease-soft);
+}
+
+.fmt-chip {
+  height: 26px;
+  padding: 0 4px;
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.fmt-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 26px;
+  padding: 0;
+}
+
+.fmt-chip:hover:not(.is-active),
+.fmt-icon:hover:not(.is-active) {
+  border-color: rgba(217, 119, 87, 0.4);
+  color: var(--c-dark);
+}
+
+.fmt-chip.is-active,
+.fmt-icon.is-active {
+  border-color: var(--c-orange);
+  background: rgba(217, 119, 87, 0.08);
+  color: var(--c-orange);
+  box-shadow: inset 0 0 0 1px rgba(217, 119, 87, 0.2);
+}
+
+.fmt-gap {
+  flex: none;
+  width: 1px;
+  height: 18px;
+  margin: 0 1px;
+  background: var(--c-border);
+}
+
+.fmt-glyph {
+  font-family: var(--font-heading);
+  font-size: 12px;
+  line-height: 1;
+}
+
+.fmt-glyph--bold {
+  font-weight: 700;
+}
+
+.fmt-glyph--italic {
+  font-style: italic;
+  font-weight: 600;
+}
+
+.fmt-glyph--underline {
+  font-weight: 600;
+  text-decoration: underline;
 }
 
 /* 版面选择：三段等宽，选中项用品牌橙描边 + 浅底 */

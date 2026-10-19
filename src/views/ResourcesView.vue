@@ -1,6 +1,6 @@
 <template>
   <div class="resources">
-    <!-- 标签栏投射到顶栏左侧：入口页不再显示页面标题，标签即该页的主导航 -->
+    <!-- 标签栏投射到顶栏左侧：三个标签靠左摆放，与本页内容的左边缘对齐 -->
     <Teleport v-if="topbarLead" :to="topbarLead">
       <div class="tabs" role="tablist">
         <button
@@ -18,7 +18,7 @@
       </div>
     </Teleport>
 
-    <!-- 我的文件：完整文件列表，每页 20 条 -->
+    <!-- 我的文件：卡片网格，每页 20 张 -->
     <template v-if="activeTab === 'files'">
       <div v-if="!loggedIn" class="placeholder">{{ t('resources.needLogin') }}</div>
 
@@ -27,36 +27,56 @@
         {{ t('process.loading') }}
       </div>
 
-      <div v-else-if="!rows.length" class="placeholder">{{ t('resources.empty') }}</div>
+      <div v-else-if="!lists.files.rows.length" class="placeholder">{{ t('resources.empty') }}</div>
 
       <template v-else>
-        <p class="count">{{ t('resources.total', { total }) }}</p>
+        <p class="count">{{ t('resources.total', { total: lists.files.total }) }}</p>
 
-        <ul class="rows">
-          <li v-for="row in rows" :key="row.id" class="row" @click="open(row)">
-            <span class="row-icon" aria-hidden="true">
-              <svg viewBox="0 0 24 24" width="17" height="17" fill="none">
-                <path
-                  d="M13.5 3.2H7.1A1.9 1.9 0 0 0 5.2 5.1v13.8a1.9 1.9 0 0 0 1.9 1.9h9.8a1.9 1.9 0 0 0 1.9-1.9V8.3l-5.1-5.1Z"
-                  stroke="currentColor"
-                  stroke-width="1.6"
-                  stroke-linejoin="round"
-                />
-                <path d="M13.4 3.4v4.7h4.9" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" />
-              </svg>
-            </span>
+        <ul class="cards">
+          <li
+            v-for="(row, i) in lists.files.rows"
+            :key="row.id"
+            class="card"
+            tabindex="0"
+            :style="{ animationDelay: `${Math.min(i, 11) * 22}ms` }"
+            @click="openFile(row)"
+            @keydown.enter="openFile(row)"
+          >
+            <div class="card-eyebrow">
+              <span class="card-ico" aria-hidden="true">
+                <svg viewBox="0 0 24 24" width="14" height="14" fill="none">
+                  <path
+                    d="M13.5 3.6H7.4A1.8 1.8 0 0 0 5.6 5.4v13.2a1.8 1.8 0 0 0 1.8 1.8h9.2a1.8 1.8 0 0 0 1.8-1.8V8.4l-4.9-4.8Z"
+                    stroke="currentColor"
+                    stroke-width="1.7"
+                    stroke-linejoin="round"
+                  />
+                  <path d="M13.3 3.8v4.6h4.7" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round" />
+                </svg>
+              </span>
+              <span class="card-kind">{{ t('resources.files.cardLabel') }}</span>
+              <span class="card-sep">/</span>
+              <span class="card-time">{{ formatTime(row.createdAt) }}</span>
+            </div>
 
-            <div class="row-main">
-              <p class="row-name">{{ row.fileName }}</p>
-              <p class="row-meta">
-                <span>{{ formatTime(row.createdAt) }}</span>
-                <span v-if="row.questionCount">{{ row.questionCount }} {{ t('tasks.column.questionCount') }}</span>
+            <div class="card-body">
+              <p class="card-title">{{ row.fileName }}</p>
+              <p v-if="row.questionCount" class="card-note">
+                {{ t('resources.files.questionCount', { count: row.questionCount }) }}
               </p>
             </div>
 
-            <el-tag :type="statusType(row.status)" size="small" effect="light">
-              {{ t(`tasks.status.${row.status}`) }}
-            </el-tag>
+            <span class="card-rule" aria-hidden="true"></span>
+
+            <div class="card-foot">
+              <el-tag :type="statusType(row.status)" size="small" effect="light">
+                {{ statusText(row.status) }}
+              </el-tag>
+              <!-- 删除文件记录：只删这一条记录，题库中已入库的题目不受影响 -->
+              <button type="button" class="card-act" @click.stop="removeFile(row)">
+                {{ t('resources.files.delete') }}
+              </button>
+            </div>
           </li>
         </ul>
 
@@ -64,36 +84,191 @@
           <el-pagination
             background
             layout="prev, pager, next"
-            :total="total"
-            :page-size="FILE_PAGE_SIZE"
-            :current-page="pageNo"
-            @current-change="goPage"
+            :total="lists.files.total"
+            :page-size="PAGE_SIZE"
+            :current-page="lists.files.pageNo"
+            @current-change="(next) => goPage('files', next)"
           />
         </div>
       </template>
     </template>
 
-    <div v-else class="placeholder">{{ t('resources.soon') }}</div>
+    <!-- 我的试卷：卡片网格，点击进入组卷编辑器继续编辑 -->
+    <template v-else-if="activeTab === 'papers'">
+      <div v-if="!loggedIn" class="placeholder">{{ t('resources.papers.needLogin') }}</div>
+
+      <div v-else-if="loading" class="placeholder">
+        <span class="spinner" aria-hidden="true"></span>
+        {{ t('process.loading') }}
+      </div>
+
+      <div v-else-if="!lists.papers.rows.length" class="placeholder">{{ t('resources.papers.empty') }}</div>
+
+      <template v-else>
+        <p class="count">{{ t('resources.papers.total', { total: lists.papers.total }) }}</p>
+
+        <ul class="cards">
+          <li
+            v-for="(row, i) in lists.papers.rows"
+            :key="row.id"
+            class="card"
+            tabindex="0"
+            :style="{ animationDelay: `${Math.min(i, 11) * 22}ms` }"
+            @click="openPaper(row)"
+            @keydown.enter="openPaper(row)"
+          >
+            <div class="card-eyebrow">
+              <span class="card-ico" aria-hidden="true">
+                <svg viewBox="0 0 24 24" width="14" height="14" fill="none">
+                  <path
+                    d="M7.1 4.6h6.7l4.3 4.3v9.7a1.2 1.2 0 0 1-1.2 1.2H7.1a1.2 1.2 0 0 1-1.2-1.2V5.8a1.2 1.2 0 0 1 1.2-1.2Z"
+                    stroke="currentColor"
+                    stroke-width="1.7"
+                    stroke-linejoin="round"
+                  />
+                  <path d="M13.6 4.8v4.4h4.4" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round" />
+                  <path d="M8.5 12.9h7M8.5 16h4.7" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" />
+                </svg>
+              </span>
+              <span class="card-kind">{{ t('resources.papers.cardLabel') }}</span>
+              <span class="card-sep">/</span>
+              <span class="card-time">{{ formatTime(row.updatedAt || row.createdAt) }}</span>
+            </div>
+
+            <div class="card-body">
+              <p class="card-title">{{ row.title || t('compose.untitled') }}</p>
+              <p v-if="preview(row.content)" class="card-text">{{ preview(row.content) }}</p>
+            </div>
+
+            <span class="card-rule" aria-hidden="true"></span>
+
+            <div class="card-foot">
+              <span class="card-chips">
+                <span v-for="tag in tagList(row.tags)" :key="tag" class="card-chip">{{ tag }}</span>
+              </span>
+              <span class="card-go" aria-hidden="true">
+                <svg viewBox="0 0 24 24" width="15" height="15" fill="none">
+                  <path d="M5 12h13M12.5 6.5 19 12l-6.5 5.5" stroke="currentColor" stroke-width="1.8"
+                        stroke-linecap="round" stroke-linejoin="round" />
+                </svg>
+              </span>
+            </div>
+          </li>
+        </ul>
+
+        <div class="list-foot">
+          <el-pagination
+            background
+            layout="prev, pager, next"
+            :total="lists.papers.total"
+            :page-size="PAGE_SIZE"
+            :current-page="lists.papers.pageNo"
+            @current-change="(next) => goPage('papers', next)"
+          />
+        </div>
+      </template>
+    </template>
+
+    <!-- 我的题目：整题题干展开成 4 行，超出即省略；点开详情查看 AI 分析、就地编辑或删除 -->
+    <template v-else>
+      <div v-if="!loggedIn" class="placeholder">{{ t('resources.questions.needLogin') }}</div>
+
+      <div v-else-if="loading" class="placeholder">
+        <span class="spinner" aria-hidden="true"></span>
+        {{ t('process.loading') }}
+      </div>
+
+      <div v-else-if="!lists.questions.rows.length" class="placeholder">
+        {{ t('resources.questions.empty') }}
+      </div>
+
+      <template v-else>
+        <p class="count">{{ t('resources.questions.total', { total: lists.questions.total }) }}</p>
+
+        <ul class="rows">
+          <li
+            v-for="(row, i) in lists.questions.rows"
+            :key="row.id"
+            class="row"
+            tabindex="0"
+            :style="{ animationDelay: `${Math.min(i, 11) * 20}ms` }"
+            @click="openQuestion(row)"
+            @keydown.enter="openQuestion(row)"
+          >
+            <div class="row-head">
+              <span class="row-ico" aria-hidden="true">
+                <svg viewBox="0 0 24 24" width="14" height="14" fill="none">
+                  <circle cx="12" cy="12" r="8.2" stroke="currentColor" stroke-width="1.7" />
+                  <path
+                    d="M9.7 9.8a2.3 2.3 0 1 1 3.2 2.1c-.6.3-.9.8-.9 1.4v.5"
+                    stroke="currentColor"
+                    stroke-width="1.7"
+                    stroke-linecap="round"
+                  />
+                  <circle cx="12" cy="16.5" r="1" fill="currentColor" />
+                </svg>
+              </span>
+              <span v-if="row.subject" class="row-kind">{{ row.subject }}</span>
+              <span v-if="row.subject && row.grade" class="row-sep">/</span>
+              <span v-if="row.grade" class="row-kind">{{ row.grade }}</span>
+              <span class="row-sep" v-if="row.subject || row.grade">/</span>
+              <span class="row-time">{{ formatTime(row.createdAt) }}</span>
+
+              <button class="row-act" type="button" @click.stop="removeQuestion(row)">
+                {{ t('search.delete') }}
+              </button>
+            </div>
+
+            <!-- 题干是原始 Markdown，这里只做纯文本压平；截断交给 CSS 的 4 行 clamp，
+                 这样省略号会跟着卡片宽度自适应，而不是被 JS 固定切在某个字数上 -->
+            <p class="row-stem">{{ plainText(row.title) }}</p>
+          </li>
+        </ul>
+
+        <div class="list-foot">
+          <el-pagination
+            background
+            layout="prev, pager, next"
+            :total="lists.questions.total"
+            :page-size="PAGE_SIZE"
+            :current-page="lists.questions.pageNo"
+            @current-change="(next) => goPage('questions', next)"
+          />
+        </div>
+      </template>
+    </template>
+
+    <QuestionDetailModal
+      v-if="activeQuestion"
+      :question="activeQuestion"
+      @close="activeQuestion = null"
+      @deleted="onQuestionDeleted"
+    />
   </div>
 </template>
 
 <script setup>
-import { inject, onMounted, ref, watch } from 'vue'
-import { useRouter } from 'vue-router'
+import { inject, onMounted, reactive, ref, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
-import { pageOcrTasks } from '@/api/ocr'
+import { ElMessage, ElMessageBox } from 'element-plus'
+import { deleteOcrTask, pageOcrTasks } from '@/api/ocr'
+import { pagePapers } from '@/api/paper'
+import { deleteQuestion, pageQuestions } from '@/api/question'
 import { currentUser, isLoggedIn } from '@/utils/auth'
+import QuestionDetailModal from '@/components/QuestionDetailModal.vue'
 
 /**
- * 「我的文件」是完整列表，每页 20 条、可翻页；
+ * 三个标签页都是完整列表，每页 20 条、可翻页。
  * 与侧栏「近期文件」（只列最近 10 条、不翻页）是两种定位，不要共用同一个常量。
  */
-const FILE_PAGE_SIZE = 20
+const PAGE_SIZE = 20
 
 const { t } = useI18n()
+const route = useRoute()
 const router = useRouter()
 
-/** 顶栏左侧插槽：标签栏由 App.vue 提供，投射上去与页标题同一位置 */
+/** 顶栏左侧插槽：标签栏由 App.vue 提供，投射上去即贴内容左边缘 */
 const topbarLead = inject('topbarLead', null)
 
 const tabs = [
@@ -101,41 +276,167 @@ const tabs = [
   { key: 'papers', label: 'resources.tabs.papers' },
   { key: 'questions', label: 'resources.tabs.questions' }
 ]
-const activeTab = ref('files')
+
+/**
+ * 当前标签同时写进地址栏（?tab=papers）：这样从「我的试卷」进编辑页后按返回，
+ * 能回到试卷标签本身，而不是被重置回默认的文件标签。
+ */
+const activeTab = ref(tabs.some((tab) => tab.key === route.query.tab) ? route.query.tab : 'files')
 
 const loggedIn = ref(isLoggedIn())
-const rows = ref([])
-const total = ref(0)
-const pageNo = ref(1)
 const loading = ref(false)
 
-async function load() {
+/** 三个标签各自的分页状态；loaded 用于切换标签时只在首次加载，保留已翻到的页码 */
+const lists = reactive({
+  files: { rows: [], total: 0, pageNo: 1, loaded: false },
+  papers: { rows: [], total: 0, pageNo: 1, loaded: false },
+  questions: { rows: [], total: 0, pageNo: 1, loaded: false }
+})
+
+/** 正在查看详情的题目（列表行摘要），非空时弹详情面板 */
+const activeQuestion = ref(null)
+
+const LOADERS = {
+  files: (pageNo) => pageOcrTasks(pageNo, PAGE_SIZE),
+  papers: (pageNo) => pagePapers(pageNo),
+  questions: (pageNo) => pageQuestions(pageNo)
+}
+
+// 递增序号用于丢弃过期响应：快速切标签时，先发出的请求可能后返回
+let loadSeq = 0
+
+async function load(tab, pageNo) {
   if (!loggedIn.value) return
+  const list = lists[tab]
+  const seq = (loadSeq += 1)
   loading.value = true
   try {
-    const page = await pageOcrTasks(pageNo.value, FILE_PAGE_SIZE)
-    rows.value = page.records || []
-    total.value = Number(page.total) || 0
+    const page = await LOADERS[tab](pageNo)
+    if (seq !== loadSeq) return
+    list.rows = page.records || []
+    list.total = Number(page.total) || 0
+    list.pageNo = pageNo
+    list.loaded = true
   } catch {
-    rows.value = []
-    total.value = 0
+    if (seq !== loadSeq) return
+    list.rows = []
+    list.total = 0
   } finally {
-    loading.value = false
+    if (seq === loadSeq) loading.value = false
   }
 }
 
-function goPage(next) {
-  pageNo.value = next
-  load()
+function goPage(tab, next) {
+  load(tab, next)
 }
 
-/** 点击记录进入该文件的题目渲染交互页 */
-function open(row) {
-  router.push(`/tasks/${row.id}/process`)
+/** 点击文件记录进入该文件的题目渲染交互页（带来源标记，页内的返回按钮据此回到本页） */
+function openFile(row) {
+  router.push({ path: `/app/tasks/${row.id}/process`, query: { from: 'resources' } })
+}
+
+/** 点击试卷继续进入组卷编辑器（带来源标记，编辑器返回时回到「我的试卷」标签） */
+function openPaper(row) {
+  router.push({ path: `/app/compose/${row.id}`, query: { from: 'resources' } })
+}
+
+function openQuestion(row) {
+  activeQuestion.value = row
+}
+
+/** 删掉当前页最后一条时回退一页，避免停在空页 */
+function nextPageAfterDelete(list) {
+  return list.rows.length === 1 && list.pageNo > 1 ? list.pageNo - 1 : list.pageNo
+}
+
+/** 详情面板里删除题目后：关闭面板并按当前页重新拉取 */
+async function onQuestionDeleted() {
+  activeQuestion.value = null
+  await load('questions', nextPageAfterDelete(lists.questions))
+}
+
+/** 列表行上的删除：确认后调接口并按当前页重新拉取 */
+async function removeQuestion(row) {
+  try {
+    await ElMessageBox.confirm(t('search.deleteTip'), t('search.delete'), {
+      confirmButtonText: t('common.confirm'),
+      cancelButtonText: t('common.cancel'),
+      type: 'warning'
+    })
+  } catch {
+    return
+  }
+
+  try {
+    await deleteQuestion(row.id)
+  } catch {
+    return
+  }
+
+  ElMessage.success(t('search.deleted'))
+  await onQuestionDeleted()
+}
+
+/** 卡片上的删除：只删这条文件记录，题库里已入库的题目不受影响 */
+async function removeFile(row) {
+  try {
+    await ElMessageBox.confirm(t('resources.files.deleteTip'), t('resources.files.delete'), {
+      confirmButtonText: t('common.confirm'),
+      cancelButtonText: t('common.cancel'),
+      type: 'warning'
+    })
+  } catch {
+    return
+  }
+
+  try {
+    await deleteOcrTask(row.id)
+  } catch {
+    return
+  }
+
+  ElMessage.success(t('resources.files.deleted'))
+  await load('files', nextPageAfterDelete(lists.files))
 }
 
 function statusType(status) {
   return { SUCCESS: 'success', FAILED: 'danger', PARSING: 'warning' }[status] || 'info'
+}
+
+/** 文件卡片的状态文案：解析完成在本页读作「已解析」，其余沿用任务状态原词 */
+function statusText(status) {
+  return status === 'SUCCESS' ? t('resources.files.parsed') : t(`tasks.status.${status}`)
+}
+
+/** 试卷正文是 HTML，剥掉标签取一段纯文本做摘要 */
+function preview(content) {
+  return String(content || '')
+    .replace(/<[^>]*>/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 140)
+}
+
+/** 试卷标签用逗号分隔存储，拆成小胶囊展示 */
+function tagList(tags) {
+  return String(tags || '')
+    .split(/[,，]/)
+    .map((item) => item.trim())
+    .filter(Boolean)
+    .slice(0, 4)
+}
+
+/**
+ * 题干是原始 Markdown，列表只做纯文本压平：去掉图片、公式定界符与转义反斜杠，
+ * 不在这里截断——截断长度交给 CSS 的行数 clamp，换列宽/换语言时省略号位置才对得上
+ */
+function plainText(markdown) {
+  return String(markdown || '')
+    .replace(/!\[[^\]]*\]\([^\s)]*\)/g, ' ')
+    .replace(/\\/g, '')
+    .replace(/\$/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
 }
 
 function formatTime(value) {
@@ -143,33 +444,46 @@ function formatTime(value) {
   return String(value).replace('T', ' ').slice(0, 16)
 }
 
-// 登录/退出后重新拉取：退出要清空列表，登录要立刻看到自己的文件
+// 切标签时按需加载：已加载过的标签保留原有页码，不重复请求；
+// 同时把标签写进地址栏（replace 不新增历史项），让「返回」能回到同一标签
+watch(activeTab, (tab) => {
+  if (route.query.tab !== tab) router.replace({ query: { ...route.query, tab } })
+  if (!loggedIn.value) return
+  if (!lists[tab].loaded) load(tab, 1)
+})
+
+// 登录/退出后重新拉取：退出要清空列表，登录要立刻看到自己的资源
 watch(
   () => currentUser.value,
   () => {
     loggedIn.value = isLoggedIn()
-    pageNo.value = 1
-    if (loggedIn.value) {
-      load()
-    } else {
-      rows.value = []
-      total.value = 0
-    }
+    activeQuestion.value = null
+    loadSeq += 1
+    Object.values(lists).forEach((list) => {
+      list.rows = []
+      list.total = 0
+      list.pageNo = 1
+      list.loaded = false
+    })
+    if (loggedIn.value) load(activeTab.value, 1)
   }
 )
 
-onMounted(load)
+// 首屏直接加载地址栏里的那个标签：从「我的试卷」进编辑页后返回时，
+// activeTab 已经由 query 初始化好，不会触发上面的 watch，必须在这里补一次加载
+onMounted(() => load(activeTab.value, 1))
 </script>
 
 <style scoped>
+/* 列表整体铺满内容区：卡片列数由 .cards 的 auto-fill 随屏幕宽度自适应，
+   这里不能再设 max-width 硬上限（宽屏下会两侧留大片空白），
+   也不能用 margin:auto（在 .page 这个纵向 flex 容器里会连带把内容垂直居中） */
 .resources {
   width: 100%;
-  max-width: 1060px;
-  margin: auto;
 }
 
 /* 标签栏：整体做成一条带底槽的胶囊，选中项是其中的滑块。
-   它被投射到顶栏左侧，所以这里不留外边距，间距由顶栏高度给出 */
+   它被投射到顶栏左侧插槽，所以这里不留外边距，间距由顶栏高度给出 */
 .tabs {
   display: inline-flex;
   gap: 4px;
@@ -197,15 +511,10 @@ onMounted(load)
   color: var(--c-dark);
 }
 
+/* 选中态用项目主色（品牌橙）实底：与主按钮、分页选中页同一套主色语言 */
 .tab.is-active {
-  background: var(--c-dark);
-  color: var(--c-light);
-}
-
-/* 深色下选中项用「比底槽略亮的面」，理由同侧栏选中项：纯白滑块过于刺眼 */
-html.dark .tab.is-active {
-  background: var(--c-light-gray);
-  color: var(--c-dark);
+  background: var(--c-orange);
+  color: var(--c-on-accent);
 }
 
 .placeholder {
@@ -219,89 +528,331 @@ html.dark .tab.is-active {
   color: var(--c-mid-gray);
 }
 
-/* 数字改走无衬线栈（--font-heading）：正文衬线体首选 Georgia，
-   它用的是旧式数字（3/4/5/7/9 带降部、6/8 带升部、0/1 只有 x 高），
-   和汉字/无衬线混排时高低不齐，看起来「怪怪的」 */
+/* 数字单独声明无衬线栈并启用等宽数字，保证多位计数（如 1,024）在列表中左右对齐 */
 .count {
-  margin: 0 0 12px;
+  margin: 0 0 14px;
   font-family: var(--font-heading);
   font-size: 12.5px;
   color: var(--c-mid-gray);
 }
 
+/* 入场：整片卡片自上而下依次浮起，只做一次性错峰，不做滚动监听 */
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(9px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* ---------------- 文件 / 试卷：卡片网格 ---------------- */
+
+/* auto-fill + minmax 让卡片数随视口自适应，最少 292px 保证标题不会被挤成两行碎词 */
+.cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(292px, 1fr));
+  gap: 14px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-height: 164px;
+  padding: 16px 18px 14px;
+  border: 1px solid var(--c-border);
+  border-radius: var(--radius-md);
+  background: var(--c-surface);
+  box-shadow: var(--shadow-xs);
+  cursor: pointer;
+  overflow: hidden;
+  animation: rise 0.34s var(--ease-out) both;
+  transition: border-color 0.22s var(--ease-soft), box-shadow 0.22s var(--ease-soft),
+    transform 0.22s var(--ease-out);
+}
+
+.card:hover {
+  border-color: rgba(217, 119, 87, 0.42);
+  box-shadow: var(--shadow-md);
+  transform: translateY(-3px);
+}
+
+.card:focus-visible {
+  outline: none;
+  border-color: var(--c-orange);
+  box-shadow: 0 0 0 3px rgba(217, 119, 87, 0.16);
+}
+
+/* 卡片顶边压 2px 暖色线：平时低调，hover 时整条点亮，作为卡片的「脊」 */
+.card::before {
+  content: '';
+  position: absolute;
+  inset: 0 0 auto;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, var(--c-orange) 42%, transparent);
+  opacity: 0.28;
+  transition: opacity 0.22s var(--ease-soft);
+}
+
+.card:hover::before {
+  opacity: 1;
+}
+
+/* 眉行：图标 + 类型 + 时间，字号压到最小，把视觉重量让给标题 */
+.card-eyebrow {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-family: var(--font-heading);
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--c-mid-gray);
+}
+
+.card-ico {
+  display: inline-flex;
+  color: var(--c-orange);
+}
+
+.card-kind {
+  font-weight: 600;
+}
+
+/* 眉行里的分隔用细斜杠，比中点更克制，也不吃字距 */
+.card-sep {
+  color: var(--c-border);
+}
+
+/* 时间走数字较多的无衬线栈且不做大写转换（日期里的字母不该被放大） */
+.card-time {
+  letter-spacing: 0.02em;
+  text-transform: none;
+}
+
+/* 卡片主体占据剩余高度，使同排卡片的页脚始终贴底对齐 */
+.card-body {
+  flex: 1;
+  margin-top: 12px;
+}
+
+.card-title {
+  margin: 0;
+  font-family: var(--font-heading);
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.45;
+  color: var(--c-dark);
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+}
+
+.card-text {
+  margin: 8px 0 0;
+  font-family: var(--font-body);
+  font-size: 12.5px;
+  line-height: 1.72;
+  color: var(--c-mid-gray);
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  overflow: hidden;
+}
+
+.card-note {
+  margin: 8px 0 0;
+  font-family: var(--font-heading);
+  font-size: 12px;
+  color: var(--c-mid-gray);
+}
+
+/* 页脚上方的细分割线只铺 60%，留白让卡片不闷 */
+.card-rule {
+  height: 1px;
+  margin: 14px 0 11px;
+  background: linear-gradient(90deg, var(--c-border), var(--c-border) 60%, transparent);
+}
+
+.card-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-height: 24px;
+}
+
+.card-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-width: 0;
+}
+
+/* 标签胶囊用极浅底 + 内描边，避免和 Element 的 el-tag 抢视觉 */
+.card-chip {
+  padding: 2px 9px;
+  border-radius: 999px;
+  background: var(--c-subtle);
+  box-shadow: inset 0 0 0 1px var(--c-border);
+  font-family: var(--font-heading);
+  font-size: 11.5px;
+  color: var(--c-mid-gray);
+  white-space: nowrap;
+}
+
+.card-go {
+  display: inline-flex;
+  flex: none;
+  color: var(--c-light-gray);
+  transition: color 0.22s var(--ease-soft), transform 0.22s var(--ease-out);
+}
+
+.card:hover .card-go {
+  color: var(--c-orange);
+  transform: translateX(3px);
+}
+
+/* 卡片页脚右侧的删除入口：常态低调，hover 时转成危险色，避免误点 */
+.card-act {
+  flex: none;
+  height: 24px;
+  padding: 0 11px;
+  border: 1px solid var(--c-border);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--c-mid-gray);
+  font-family: var(--font-heading);
+  font-size: 12px;
+  cursor: pointer;
+  transition: background 0.2s var(--ease-soft), border-color 0.2s var(--ease-soft),
+    color 0.2s var(--ease-soft);
+}
+
+.card-act:hover {
+  border-color: rgba(220, 38, 38, 0.35);
+  background: var(--c-danger-bg);
+  color: var(--c-danger);
+}
+
+/* ---------------- 题目：整行题干的四行文本 ---------------- */
+
+/* 题目行宽对齐文件处理页的题目列（.q-col 同为 900px），
+   在这两页之间来回切换时正文的左右边缘落在同一条线上 */
 .rows {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 10px;
+  max-width: 900px;
   margin: 0;
   padding: 0;
   list-style: none;
 }
 
 .row {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 12px 16px;
+  padding: 15px 18px 16px;
   border: 1px solid var(--c-border);
   border-radius: var(--radius-md);
   background: var(--c-surface);
   box-shadow: var(--shadow-xs);
   cursor: pointer;
-  transition: border-color 0.2s var(--ease-soft), background 0.2s var(--ease-soft),
-    box-shadow 0.2s var(--ease-soft), transform 0.2s var(--ease-out);
+  animation: rise 0.32s var(--ease-out) both;
+  transition: border-color 0.22s var(--ease-soft), background 0.22s var(--ease-soft),
+    box-shadow 0.22s var(--ease-soft), transform 0.22s var(--ease-out);
 }
 
 .row:hover {
-  border-color: rgba(217, 119, 87, 0.4);
-  background: rgba(217, 119, 87, 0.04);
+  border-color: rgba(217, 119, 87, 0.42);
+  background: rgba(217, 119, 87, 0.035);
   box-shadow: var(--shadow-sm);
   transform: translateY(-1px);
 }
 
-.row-icon {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  flex: none;
-  width: 34px;
-  height: 34px;
-  border-radius: var(--radius-sm);
-  background: rgba(217, 119, 87, 0.1);
-  color: var(--c-orange);
-  box-shadow: inset 0 0 0 1px rgba(217, 119, 87, 0.16);
+.row:focus-visible {
+  outline: none;
+  border-color: var(--c-orange);
+  box-shadow: 0 0 0 3px rgba(217, 119, 87, 0.16);
 }
 
-.row-main {
-  flex: 1;
-  min-width: 0;
-}
-
-.row-name {
-  margin: 0;
-  font-family: var(--font-heading);
-  font-size: 14px;
-  font-weight: 500;
-  color: var(--c-dark);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-/* 时间与题数都是数字，同样走无衬线栈，理由见 .count */
-.row-meta {
+.row-head {
   display: flex;
-  gap: 12px;
-  margin: 4px 0 0;
+  align-items: center;
+  gap: 7px;
+  margin-bottom: 9px;
+  font-family: var(--font-heading);
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--c-mid-gray);
+}
+
+.row-ico {
+  display: inline-flex;
+  color: var(--c-orange);
+}
+
+.row-kind {
+  font-weight: 600;
+}
+
+.row-sep {
+  color: var(--c-border);
+}
+
+.row-time {
+  letter-spacing: 0.02em;
+  text-transform: none;
+}
+
+/* 题干展开 4 行，超出省略：Math/Physics 题干常带多小问，四行正好把主干交代清楚 */
+.row-stem {
+  margin: 0;
+  font-family: var(--font-body);
+  font-size: 13.5px;
+  line-height: 1.82;
+  color: var(--c-dark);
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 4;
+  overflow: hidden;
+}
+
+/* 删除按钮贴到行首右侧，避免 4 行题干把按钮推到列表末尾 */
+.row-act {
+  margin-left: auto;
+  flex: none;
+  height: 26px;
+  padding: 0 12px;
+  border: 1px solid var(--c-border);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--c-mid-gray);
   font-family: var(--font-heading);
   font-size: 12px;
-  color: var(--c-mid-gray);
+  letter-spacing: 0;
+  text-transform: none;
+  cursor: pointer;
+  transition: background 0.2s var(--ease-soft), border-color 0.2s var(--ease-soft),
+    color 0.2s var(--ease-soft);
+}
+
+.row-act:hover {
+  border-color: rgba(220, 38, 38, 0.35);
+  background: var(--c-danger-bg);
+  color: var(--c-danger);
 }
 
 .list-foot {
   display: flex;
   justify-content: center;
-  margin-top: 22px;
+  margin-top: 24px;
 }
 
 /* 分页器选中页改用品牌橙：Element Plus 默认蓝在其他主色入口里显得突兀 */
@@ -322,6 +873,20 @@ html.dark .tab.is-active {
 @keyframes spin {
   to {
     transform: rotate(360deg);
+  }
+}
+
+/* 尊重系统的减弱动效偏好：只保留状态切换，不做位移 */
+@media (prefers-reduced-motion: reduce) {
+  .card,
+  .row {
+    animation: none;
+  }
+
+  .card:hover,
+  .row:hover,
+  .card:hover .card-go {
+    transform: none;
   }
 }
 </style>

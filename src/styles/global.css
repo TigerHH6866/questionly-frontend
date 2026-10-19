@@ -40,9 +40,13 @@
   --c-hairline: rgba(20, 20, 19, 0.06);
   --c-hairline-strong: rgba(20, 20, 19, 0.1);
 
-  /* 字体：全部走系统字体，不请求外部字体服务；英文用系统无衬线/衬线，中文回落到 macOS 苹方 / Windows 微软雅黑 */
+  /* 字体：全部走系统字体，不请求外部字体服务 */
   --font-heading: system-ui, -apple-system, 'Segoe UI', 'Helvetica Neue', 'PingFang SC', 'Microsoft YaHei', 'Hiragino Sans GB', Arial, sans-serif;
-  --font-body: Georgia, 'Times New Roman', 'PingFang SC', 'Microsoft YaHei', 'Hiragino Sans GB', serif;
+  /* 工作区这类工具型界面用无衬线，中文回落到 macOS 苹方 / Windows 微软雅黑 */
+  --font-body: system-ui, -apple-system, 'Segoe UI', 'Helvetica Neue', 'PingFang SC', 'Microsoft YaHei', 'Hiragino Sans GB', Arial, sans-serif;
+  /* 落地页与法律页保留衬线的编辑排版气质：拉丁走 Georgia / Times New Roman，中文仍回落到系统黑体。
+     Georgia 的数字默认是旧式非等高数字，使用处需配合 font-variant-numeric: lining-nums 一起声明 */
+  --font-serif: Georgia, 'Times New Roman', 'PingFang SC', 'Microsoft YaHei', 'Hiragino Sans GB', serif;
 
   --radius-lg: 20px;
   --radius-md: 14px;
