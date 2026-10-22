@@ -124,6 +124,51 @@
 
     <!-- 右：选项区 -->
     <aside class="options">
+      <div class="opt-card">
+        <p class="opt-label">{{ t('compose.options.title') }}</p>
+        <el-input
+          v-model="title"
+          type="textarea"
+          :rows="3"
+          resize="none"
+          maxlength="80"
+          :placeholder="t('compose.options.titlePlaceholder')"
+        />
+      </div>
+
+      <div class="opt-card">
+        <p class="opt-label">{{ t('compose.options.paperSize') }}</p>
+        <div class="seg">
+          <button
+            v-for="size in PAPER_SIZES"
+            :key="size.key"
+            type="button"
+            class="seg-item"
+            :class="{ 'is-active': sizeKey === size.key }"
+            @click="sizeKey = size.key"
+          >
+            <span class="seg-shape" :style="{ aspectRatio: `${size.w} / ${size.h}` }" aria-hidden="true"></span>
+            <span class="seg-label">{{ size.key }}</span>
+          </button>
+        </div>
+      </div>
+
+      <div class="opt-card">
+        <p class="opt-label">{{ t('compose.options.zoom') }}</p>
+        <div class="seg seg--zoom">
+          <button
+            v-for="level in ZOOM_LEVELS"
+            :key="level.key"
+            type="button"
+            class="seg-chip"
+            :class="{ 'is-active': zoomKey === level.key }"
+            @click="zoomKey = level.key"
+          >
+            {{ level.key === 'fit' ? t('compose.options.zoomFit') : level.label }}
+          </button>
+        </div>
+      </div>
+
       <!-- 文字格式：改的是正文里光标所在的文字 / 段落 -->
       <div class="opt-card">
         <p class="opt-label">{{ t('compose.options.format') }}</p>
@@ -216,52 +261,19 @@
         </div>
       </div>
 
-      <div class="opt-card">
-        <p class="opt-label">{{ t('compose.options.paperSize') }}</p>
-        <div class="seg">
-          <button
-            v-for="size in PAPER_SIZES"
-            :key="size.key"
-            type="button"
-            class="seg-item"
-            :class="{ 'is-active': sizeKey === size.key }"
-            @click="sizeKey = size.key"
-          >
-            <span class="seg-shape" :style="{ aspectRatio: `${size.w} / ${size.h}` }" aria-hidden="true"></span>
-            <span class="seg-label">{{ size.key }}</span>
-          </button>
-        </div>
-      </div>
-
-      <div class="opt-card">
-        <p class="opt-label">{{ t('compose.options.zoom') }}</p>
-        <div class="seg seg--zoom">
-          <button
-            v-for="level in ZOOM_LEVELS"
-            :key="level.key"
-            type="button"
-            class="seg-chip"
-            :class="{ 'is-active': zoomKey === level.key }"
-            @click="zoomKey = level.key"
-          >
-            {{ level.key === 'fit' ? t('compose.options.zoomFit') : level.label }}
-          </button>
-        </div>
-      </div>
-
-      <div class="opt-card">
-        <p class="opt-label">{{ t('compose.options.title') }}</p>
-        <el-input v-model="title" maxlength="80" :placeholder="t('compose.options.titlePlaceholder')" />
-      </div>
-
-      <div class="opt-card">
-        <p class="opt-label">{{ t('compose.options.tags') }}</p>
-        <el-input v-model="tags" maxlength="200" :placeholder="t('compose.options.tagsHint')" />
-      </div>
-
-      <button type="button" class="btn-accent save-btn" :disabled="saving" @click="save">
+      <button type="button" class="btn-accent save-btn" :disabled="saving || exporting" @click="save">
         <span v-if="saving" class="spinner spinner-on-accent" aria-hidden="true"></span>
         {{ saving ? t('compose.options.saving') : t('compose.options.save') }}
+      </button>
+
+      <button type="button" class="export-btn" :disabled="exporting || saving" @click="exportFile('pdf')">
+        <span v-if="exporting" class="spinner" aria-hidden="true"></span>
+        {{ exporting ? t('compose.options.exporting') : t('compose.options.exportPdf') }}
+      </button>
+
+      <button type="button" class="export-btn" :disabled="exporting || saving" @click="exportFile('word')">
+        <span v-if="exporting" class="spinner" aria-hidden="true"></span>
+        {{ exporting ? t('compose.options.exporting') : t('compose.options.exportWord') }}
       </button>
     </aside>
   </div>
@@ -272,7 +284,7 @@ import { computed, inject, nextTick, onBeforeUnmount, onMounted, ref, watch } fr
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { ElMessage } from 'element-plus'
-import { createPaper, getPaper, updatePaper } from '@/api/paper'
+import { createPaper, exportPaperDocx, exportPaperPdf, getPaper, updatePaper } from '@/api/paper'
 import { searchQuestions } from '@/api/question'
 import { recognizeAudio } from '@/api/asr'
 import { renderRichMarkdown } from '@/utils/markdown'
@@ -346,8 +358,8 @@ const sheetStyle = computed(() => ({
 const isNew = computed(() => !props.id || props.id === 'new')
 
 const title = ref('')
-const tags = ref('')
 const saving = ref(false)
+const exporting = ref(false)
 const loading = ref(false)
 
 /** 搜索输入：移植搜索题库页的输入条，草稿由输入框与 ASR 共同填充 */
@@ -479,14 +491,13 @@ function onSpaceUp(event) {
 
 /* ---------- 试卷加载 / 保存 ---------- */
 
-/** 打开已有试卷：回填标题 / 标签 / 正文 */
+/** 打开已有试卷：回填标题 / 正文 */
 async function load() {
   if (isNew.value || !requireLogin()) return
   loading.value = true
   try {
     const paper = await getPaper(props.id)
     title.value = paper.title || ''
-    tags.value = paper.tags || ''
     await nextTick()
     if (sheetRef.value) sheetRef.value.innerHTML = paper.content || ''
     ensurePageFrame()
@@ -531,7 +542,7 @@ async function persist({ silent = false, fallbackTitle = false } = {}) {
   }
 
   saving.value = true
-  const payload = { title: name, content, tags: tags.value.trim() }
+  const payload = { title: name, content }
   try {
     if (isNew.value) {
       const created = await createPaper(payload)
@@ -554,6 +565,58 @@ async function save() {
   if (result?.created) {
     // 换成带 ID 的地址：组件按 path 重建，重新加载一次即为服务端保存后的内容
     router.replace(`/app/compose/${result.id}`)
+  }
+}
+
+/**
+ * 导出 PDF / Word：先静默保存一次，保证后端拿到的是最新正文；
+ * PDF 由后端无头 Chrome 按同一套样式渲染，Word 由 pandoc 转成 docx。
+ * @param {'pdf' | 'word'} kind
+ */
+async function exportFile(kind) {
+  if (exporting.value || saving.value || !requireLogin()) return
+  if (!hasContent(sheetRef.value?.innerHTML || '')) {
+    ElMessage.warning(t('compose.options.exportEmpty'))
+    return
+  }
+  const result = await persist({ silent: true, fallbackTitle: true })
+  if (!result) return
+  if (result.created) {
+    // 新建试卷第一次导出会先落库：换成带 ID 的地址，避免再次导出重复创建
+    router.replace(`/app/compose/${result.id}`)
+  }
+
+  exporting.value = true
+  try {
+    const data = kind === 'pdf'
+      ? await exportPaperPdf(result.id, sizeKey.value)
+      : await exportPaperDocx(result.id, sizeKey.value)
+    // 后端异常时返回的是 JSON（业务错误），不是文件
+    if (!(data instanceof Blob) || data.type.includes('json')) {
+      let message = t('compose.options.exportFailed')
+      try {
+        const body = JSON.parse(await data.text())
+        if (body?.msg) message = body.msg
+      } catch {
+        // 解析失败就用默认文案
+      }
+      ElMessage.error(message)
+      return
+    }
+    const name = title.value.trim() || t('compose.options.untitled')
+    const url = URL.createObjectURL(data)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = `${name}.${kind === 'pdf' ? 'pdf' : 'docx'}`
+    document.body.appendChild(link)
+    link.click()
+    link.remove()
+    setTimeout(() => URL.revokeObjectURL(url), 1000)
+    ElMessage.success(t(kind === 'pdf' ? 'compose.options.exported' : 'compose.options.exportedWord'))
+  } catch {
+    // 失败提示由 http 拦截器统一弹出
+  } finally {
+    exporting.value = false
   }
 }
 
@@ -1135,12 +1198,233 @@ function frameKind(el) {
   return null
 }
 
+/* ---------- 退格：保住纸张结构，按段落/页面合并 ---------- */
+
+const ATOMIC_SELECTOR = 'img, svg, table, math, .katex, .katex-display, video, canvas, iframe'
+/** 可以逐段合并的块：列表、表格这类结构整体交给浏览器处理，不参与拼接 */
+const MERGE_TAGS = new Set(['P', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'BLOCKQUOTE'])
+
+function setCaret(range) {
+  range.collapse(true)
+  const sel = window.getSelection()
+  if (!sel) return
+  sel.removeAllRanges()
+  sel.addRange(range)
+  savedRange = range.cloneRange()
+  const at = range.startContainer.nodeType === 3 ? range.startContainer.parentElement : range.startContainer
+  at?.scrollIntoView?.({ block: 'nearest' })
+}
+
+/** 光标所在的最外层内容块（q-block 或正文容器的直属子节点） */
+function caretBlockOf(node) {
+  let el = node && node.nodeType === 1 ? node : node?.parentElement || null
+  while (el && el !== sheetRef.value) {
+    const parent = el.parentElement
+    if (!parent) return null
+    if (parent.classList.contains('q-block') || parent.classList.contains('pg-body')) return el
+    el = parent
+  }
+  return null
+}
+
+/** 光标所在的正文容器 */
+function bodyOfCaret(node) {
+  let el = node && node.nodeType === 1 ? node : node?.parentElement || null
+  while (el && el !== sheetRef.value) {
+    if (el.classList.contains('pg-body')) return el
+    el = el.parentElement
+  }
+  return null
+}
+
+/** 光标是否停在这个块的正文开头（前面没有文字、图片或公式） */
+function caretAtBlockStart(block, range) {
+  if (!block || block.nodeType !== 1) return false
+  const probe = document.createRange()
+  probe.selectNodeContents(block)
+  try {
+    probe.setEnd(range.startContainer, range.startOffset)
+  } catch {
+    return false
+  }
+  if (probe.toString().trim()) return false
+  return !probe.cloneContents().querySelector(ATOMIC_SELECTOR)
+}
+
+/** 按正文顺序收集所有内容块，用来找光标块的上一块（可能在前一页） */
+function orderedBlocks() {
+  const out = []
+  pageEls().forEach((page) => {
+    const body = page.querySelector(':scope > .pg-body')
+    if (!body) return
+    Array.from(body.childNodes).forEach((node) => {
+      if (node.nodeType === 3) {
+        if (node.textContent.trim()) out.push(node)
+        return
+      }
+      if (node.nodeType !== 1 || isFrameEl(node)) return
+      if (node.classList.contains('q-block')) {
+        Array.from(node.childNodes).forEach((child) => {
+          if (child.nodeType === 3) {
+            if (child.textContent.trim()) out.push(child)
+          } else if (child.nodeType === 1 && !isFrameEl(child)) {
+            out.push(child)
+          }
+        })
+        return
+      }
+      out.push(node)
+    })
+  })
+  return out
+}
+
+/** 光标块内、光标之前有没有换行 <br>（段内软换行或历史遗留的空行） */
+function breakBeforeCaret(block, range) {
+  const probe = document.createRange()
+  probe.selectNodeContents(block)
+  try {
+    probe.setEnd(range.startContainer, range.startOffset)
+  } catch {
+    return false
+  }
+  return Boolean(probe.cloneContents().querySelector('br'))
+}
+
+/** 空行里只有 <br> 占位：清掉后合并过来的文字才会落在这一行，而不是掉到下一行 */
+function clearBlankBlock(block) {
+  Array.from(block.childNodes).forEach((node) => {
+    if (node.nodeType === 3 || (node.nodeType === 1 && node.tagName === 'BR')) node.remove()
+  })
+}
+
+/** 光标放到容器第 index 个子节点之前：优先贴住相邻的文字节点，落在元素边界上光标会乱跳 */
+function caretAtPoint(container, index) {
+  const range = document.createRange()
+  const after = container.childNodes[index] || null
+  const before = index > 0 ? container.childNodes[index - 1] : null
+  if (after && after.nodeType === 3) range.setStart(after, 0)
+  else if (before && before.nodeType === 3) range.setStart(before, before.data.length)
+  else range.setStart(container, Math.min(index, container.childNodes.length))
+  setCaret(range)
+}
+
+/** 空块：没有文字，也没有图片/公式 */
+function isBlankBlock(block) {
+  if (!block || block.nodeType !== 1) return false
+  if (block.textContent.trim()) return false
+  return !block.querySelector(ATOMIC_SELECTOR)
+}
+
+/** 正文里一点内容都没有（连空段落都没有）：这时退格会把整张纸一起删掉 */
+function isVacantBody(body) {
+  if (!body || body.nodeType !== 1) return false
+  if (body.textContent.trim()) return false
+  if (body.querySelector(ATOMIC_SELECTOR)) return false
+  return !body.querySelector('*')
+}
+
+/** 光标前紧挨着的公式：浏览器会把光标塞进 KaTeX 的视觉层，退格会把公式删成残缺 */
+function katexBeforeCaret(range) {
+  const node = range.startContainer
+  const offset = range.startOffset
+  let before = null
+  if (node.nodeType === 3) {
+    // 光标不在文字开头时交给浏览器逐字删
+    if (offset > 0) return null
+    before = node.previousSibling
+  } else {
+    before = node.childNodes[offset - 1] || null
+  }
+  while (before && before.nodeType === 3 && !before.data) before = before.previousSibling
+  if (!before || before.nodeType !== 1) return null
+  return before.closest?.('.katex, .katex-display') || null
+}
+
+/**
+ * 退格：
+ * 1) 正文被清空时拦住浏览器，避免整张纸被删掉；
+ * 2) 光标在段落开头时并到上一段（可以跨页），光标落在段落之间而不是公式内部；
+ * 3) 光标紧贴公式时整体删掉公式，避免 KaTeX 视觉层被删成残缺；
+ * 4) 其余情况交给浏览器。
+ */
+function handleBackspace(event) {
+  const range = rangeInSheet()
+  if (!range || !range.collapsed) return false
+  const body = bodyOfCaret(range.startContainer)
+  if (!body) return false
+
+  const katex = katexBeforeCaret(range)
+  if (katex) {
+    event.preventDefault()
+    const parent = katex.parentNode
+    const at = Array.prototype.indexOf.call(parent.childNodes, katex)
+    const caret = document.createRange()
+    katex.remove()
+    caret.setStart(parent, Math.min(at, parent.childNodes.length))
+    setCaret(caret)
+    schedulePaginate(0)
+    return true
+  }
+
+  if (isVacantBody(body)) {
+    event.preventDefault()
+    const pages = pageEls()
+    const index = pages.indexOf(body.closest('.pg-page'))
+    const prevBody = index > 0 ? pages[index - 1].querySelector(':scope > .pg-body') : null
+    if (prevBody) {
+      caretAtEnd(prevBody)
+    } else {
+      const caret = document.createRange()
+      caret.setStart(body, 0)
+      setCaret(caret)
+    }
+    return true
+  }
+
+  const block = caretBlockOf(range.startContainer)
+  if (!block || !MERGE_TAGS.has(block.tagName)) return false
+  if (!caretAtBlockStart(block, range)) return false
+  // 光标前面是本段内的换行：退格只该吃掉这个换行（逐行上移），
+  // 整段合并会让光标一下跳到前面好几行，交给浏览器删 <br> 即可
+  if (breakBeforeCaret(block, range)) return false
+  const blocks = orderedBlocks()
+  const index = blocks.indexOf(block)
+  if (index <= 0) {
+    // 全文最开头：没有上一段可并，拦住浏览器删除段落/纸张结构
+    event.preventDefault()
+    return true
+  }
+  const prev = blocks[index - 1]
+  if (!prev || prev.nodeType !== 1 || !MERGE_TAGS.has(prev.tagName)) return false
+
+  event.preventDefault()
+  if (isBlankBlock(block)) {
+    block.remove()
+    if (isBlankBlock(prev)) caretAtPoint(prev, 0)
+    else caretAtEnd(prev)
+  } else {
+    // 上一段是空行：先清掉占位的 <br>，否则合并过来的文字会落到空行下面
+    if (isBlankBlock(prev)) clearBlankBlock(prev)
+    const at = prev.childNodes.length
+    while (block.firstChild) prev.appendChild(block.firstChild)
+    block.remove()
+    caretAtPoint(prev, at)
+  }
+  schedulePaginate(0)
+  return true
+}
+
 /**
  * 光标直接落在正文容器上时按回车，浏览器会连容器属性一起克隆出第二个同样的容器，
  * 所以这里自己造一个段落来换行，结构容器始终只有一个。
  */
 function onSheetKeydown(event) {
-  if (event.key !== 'Enter' || event.shiftKey || event.isComposing) return
+  if (event.isComposing) return
+  if (event.key === 'Backspace' && !event.ctrlKey && !event.altKey && !event.metaKey) {
+    if (handleBackspace(event)) return
+  }
+  if (event.key !== 'Enter' || event.shiftKey) return
   const range = rangeInSheet()
   if (!range) return
   const owner = blockOf(range.startContainer)
@@ -2503,6 +2787,34 @@ html.dark .editor {
   width: 100%;
   height: 36px;
   font-size: 13.5px;
+}
+
+.export-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  height: 36px;
+  border: 1px solid var(--c-border);
+  border-radius: 10px;
+  background: var(--c-white);
+  font-family: var(--font-heading);
+  font-size: 13.5px;
+  color: var(--c-ink);
+  cursor: pointer;
+  transition: border-color 0.2s, color 0.2s, background 0.2s;
+}
+
+.export-btn:hover:not(:disabled) {
+  border-color: var(--c-orange);
+  color: var(--c-orange);
+  background: rgba(217, 119, 87, 0.06);
+}
+
+.export-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
 }
 
 .spinner {

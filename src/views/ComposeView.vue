@@ -53,10 +53,6 @@
 
           <p class="paper-title">{{ row.title }}</p>
           <p v-if="preview(row.content)" class="paper-preview">{{ preview(row.content) }}</p>
-
-          <div class="paper-tags">
-            <span v-for="tag in tagList(row.tags)" :key="tag" class="paper-tag">{{ tag }}</span>
-          </div>
         </li>
       </ul>
     </template>
@@ -120,13 +116,6 @@ function startNew() {
 /** 点击试卷卡片进入编辑页（不带来源标记，编辑器默认返回到本页） */
 function open(row) {
   router.push(`/app/compose/${row.id}`)
-}
-
-function tagList(tags) {
-  return String(tags || '')
-    .split(',')
-    .map((tag) => tag.trim())
-    .filter(Boolean)
 }
 
 /** 列表只做摘要：去掉正文标签、压掉空白后截断 */
@@ -342,25 +331,6 @@ onBeforeUnmount(() => window.removeEventListener('resize', measureColumns))
   font-size: 12.5px;
   line-height: 1.55;
   color: var(--c-mid-gray);
-}
-
-.paper-tags {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  margin-top: auto;
-}
-
-.paper-tag {
-  display: inline-flex;
-  align-items: center;
-  height: 20px;
-  padding: 0 9px;
-  border-radius: 999px;
-  background: rgba(217, 119, 87, 0.1);
-  color: var(--c-orange);
-  font-family: var(--font-heading);
-  font-size: 11.5px;
 }
 
 .spinner {

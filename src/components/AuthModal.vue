@@ -45,7 +45,7 @@
                 type="email"
                 class="auth-input"
                 :class="{ 'is-error': errors.email }"
-                :placeholder="t('auth.emailPlaceholder')"
+                :placeholder="tab === 'signup' ? t('auth.signupEmailPlaceholder') : t('auth.emailPlaceholder')"
                 autocomplete="email"
               />
               <span v-if="errors.email" class="auth-error">{{ errors.email }}</span>
@@ -58,7 +58,7 @@
                 type="password"
                 class="auth-input"
                 :class="{ 'is-error': errors.password }"
-                :placeholder="t('auth.passwordPlaceholder')"
+                :placeholder="tab === 'signup' ? t('auth.signupPasswordPlaceholder') : t('auth.passwordPlaceholder')"
                 :autocomplete="tab === 'signin' ? 'current-password' : 'new-password'"
               />
               <span v-if="errors.password" class="auth-error">{{ errors.password }}</span>

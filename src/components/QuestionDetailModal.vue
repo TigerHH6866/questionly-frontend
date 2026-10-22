@@ -6,24 +6,40 @@
           <span class="qdm-tag">{{ t('process.panelTitle') }}</span>
           <span class="qdm-hint">{{ t('process.panelHint') }}</span>
         </div>
-        <button
-          class="qdm-close"
-          type="button"
-          :title="t('process.close')"
-          :aria-label="t('process.close')"
-          @click="close"
-        >
-          <svg viewBox="0 0 24 24" width="15" height="15" fill="none" aria-hidden="true">
-            <path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
-          </svg>
-        </button>
+        <div class="qdm-head-right">
+          <span class="qdm-time">{{ formatTime(question.createdAt) }}</span>
+          <button
+            class="qdm-close"
+            type="button"
+            :title="t('process.close')"
+            :aria-label="t('process.close')"
+            @click="close"
+          >
+            <svg viewBox="0 0 24 24" width="15" height="15" fill="none" aria-hidden="true">
+              <path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+            </svg>
+          </button>
+        </div>
       </header>
 
-      <p class="qdm-meta">
-        <span v-if="question.subject">{{ question.subject }}</span>
-        <span v-if="question.grade">{{ question.grade }}</span>
-        <span>{{ formatTime(question.createdAt) }}</span>
-      </p>
+      <!-- 题干顶部一行：学段、学科、知识点；时间移到右上角 -->
+      <div class="qdm-meta">
+        <template v-if="stage">
+          <span class="qdm-meta-text">{{ stage }}</span>
+          <span class="qdm-meta-sep" aria-hidden="true">/</span>
+        </template>
+        <template v-if="subject">
+          <span class="qdm-meta-text">{{ subject }}</span>
+          <span class="qdm-meta-sep" aria-hidden="true">/</span>
+        </template>
+        <span v-for="item in knowledge" :key="item.knowledgeId" class="qdm-kp" :class="{ primary: item.role === 1 }">
+          <span v-if="item.role === 1" class="qdm-kp-star" aria-hidden="true">★</span>
+          <span class="qdm-kp-name">{{ item.name }}</span>
+        </span>
+        <button class="qdm-kp-add" type="button" @click="pickerOpen = true">
+          ＋ {{ t('knowledge.select') }}
+        </button>
+      </div>
 
       <div class="qdm-scroll">
         <section class="qdm-sec">
@@ -59,6 +75,14 @@
         </button>
       </footer>
     </div>
+
+    <KnowledgePicker
+      v-if="pickerOpen"
+      :question-id="question.id"
+      :subject="question.subject || ''"
+      @close="pickerOpen = false"
+      @saved="loadKnowledge"
+    />
   </div>
 </template>
 
@@ -66,7 +90,13 @@
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { deleteQuestion, getQuestionDetail, updateQuestion } from '@/api/question'
+import {
+  deleteQuestion,
+  getQuestionDetail,
+  getQuestionKnowledge,
+  updateQuestion
+} from '@/api/question'
+import KnowledgePicker from '@/components/KnowledgePicker.vue'
 import { renderMarkdown, renderRichMarkdown } from '@/utils/markdown'
 import { toEditedMarkdown } from '@/utils/editedMarkdown'
 
@@ -82,6 +112,22 @@ const bodyRef = ref(null)
 const loading = ref(false)
 const saving = ref(false)
 const busy = computed(() => loading.value || saving.value)
+const knowledge = ref([])
+const pickerOpen = ref(false)
+
+/** 学段优先用题目记录的年级，缺失时退回已关联知识点的学段 */
+const stage = computed(() => props.question.grade || knowledge.value[0]?.stage || '')
+/** 学科取题目本身记录的学科，缺失时用知识点所属学科 */
+const subject = computed(() => props.question.subject || knowledge.value[0]?.subject || '')
+
+/** 拉取题目已绑定的知识点（支持一题多选） */
+async function loadKnowledge() {
+  try {
+    knowledge.value = (await getQuestionKnowledge(props.question.id)) || []
+  } catch {
+    knowledge.value = []
+  }
+}
 
 /** 题干是原始 Markdown，可能内嵌表格 HTML，走富文本渲染 */
 const stemHtml = computed(() => renderRichMarkdown(props.question.title || ''))
@@ -161,6 +207,7 @@ function onKeydown(event) {
 onMounted(() => {
   window.addEventListener('keydown', onKeydown)
   loadDetail()
+  loadKnowledge()
 })
 
 onBeforeUnmount(() => {
@@ -241,15 +288,40 @@ onBeforeUnmount(() => {
   color: var(--c-dark);
 }
 
-/* 学科 / 年级 / 入库时间都是可能缺失的短标签，用分隔点连成一行 */
+/* 右上角：入库时间 + 关闭按钮 */
+.qdm-head-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: none;
+}
+
+.qdm-time {
+  font-family: var(--font-heading);
+  font-size: 11.5px;
+  font-variant-numeric: tabular-nums;
+  color: var(--c-mid-gray);
+  white-space: nowrap;
+}
+
+/* 题干顶部一行：学段 / 学科 / 知识点 chips / 选择入口 */
 .qdm-meta {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px 12px;
+  align-items: center;
+  gap: 6px 8px;
   margin: 10px 0 0;
   font-family: var(--font-heading);
   font-size: 12px;
   color: var(--c-mid-gray);
+}
+
+.qdm-meta-text {
+  color: var(--c-mid-gray);
+}
+
+.qdm-meta-sep {
+  color: var(--c-light-gray);
 }
 
 .qdm-scroll {
@@ -273,6 +345,52 @@ onBeforeUnmount(() => {
   font-weight: 600;
   letter-spacing: 0.01em;
   color: var(--c-mid-gray);
+}
+
+/* 知识点 chips 与选择入口，跟在学段、学科同一行 */
+.qdm-kp {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+  max-width: 100%;
+  padding: 3px 9px;
+  border: 1px solid var(--c-border);
+  border-radius: 999px;
+  background: var(--c-subtle);
+  font-family: var(--font-heading);
+  font-size: 12px;
+  color: var(--c-dark);
+}
+
+.qdm-kp.primary {
+  border-color: rgba(217, 119, 87, 0.45);
+  background: rgba(217, 119, 87, 0.08);
+}
+
+.qdm-kp-star {
+  font-size: 10px;
+  color: var(--c-orange);
+}
+
+.qdm-kp-name {
+  word-break: break-word;
+}
+
+.qdm-kp-add {
+  padding: 3px 8px;
+  border: 1px dashed rgba(217, 119, 87, 0.45);
+  border-radius: 999px;
+  background: transparent;
+  font-family: var(--font-heading);
+  font-size: 11.5px;
+  color: var(--c-orange);
+  cursor: pointer;
+  transition: background 0.2s var(--ease-soft), border-color 0.2s var(--ease-soft);
+}
+
+.qdm-kp-add:hover {
+  border-color: var(--c-orange);
+  background: rgba(217, 119, 87, 0.08);
 }
 
 .qdm-stem {

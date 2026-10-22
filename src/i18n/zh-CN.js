@@ -7,11 +7,11 @@ export default {
     nav: { workspace: '工作区', pricing: '定价', guide: '教程' },
     login: '登录',
     account: { workspace: '进入工作区', settings: '设置', logout: '退出登录' },
-    cta: '进入工作区',
+    cta: '开始使用',
     hero: {
-      eyebrow: 'AI 试卷识别与组卷工作台',
-      title: '把一张试卷，变成可检索的结构化题库',
-      sub: '上传 PDF、Word 或照片，AI 自动识别题干、选项、公式、表格与插图，分析学科、年级、知识点与考察能力；用自然语言就能检索，选中的题目可直接排版成 A4 试卷。',
+      eyebrow: '教师的私有化试题工作台',
+      title: '把试卷变成会思考可检索的结构化题库',
+      sub: '上传 PDF、Word 或照片，AI 自动识别题干、选项、公式、表格与插图，分析学科、年级、知识点与考察能力；用自然语言就能检索，可自由组卷、编排讲义。',
       secondary: '看看能做什么',
       play: '播放演示',
       videoHint: '演示视频准备中，可先进入工作区体验'
@@ -24,21 +24,22 @@ export default {
         title: '文件解析',
         desc: '把扫描件、照片、PDF 与 Word 完整还原成结构化题目，版式、公式、表格与插图一个不少。',
         p1: '按题号顺序自动切分题干、选项、解答与答案',
-        p2: '公式与表格原样保留，插图自动转存到你的存储空间',
-        p3: '支持批量上传，上百页文档也能一次处理完'
+        p2: '公式与表格、图片原样保留，Latex格式可直接复制使用',
+        p3: '支持批量解析，上百页文档也能一次处理完'
       },
       analyze: {
-        title: 'AI 分析题目',
-        desc: '不只是识别文字，模型会读懂每道题的考点，补全可检索的结构化信息。',
+        title: 'AI 自动分析',
+        desc: '不只是识别文字，人工智能会读懂每道题的知识点和考点，补全可检索的结构化信息进入您的题库。',
         p1: '自动判定学科、年级、题型与难度',
-        p2: '提炼知识点与考察能力，生成结构化解析',
-        p3: '识别结果可直接编辑，改完即入库'
+        p2: '自动提炼知识点与考察能力，生成结构化解析',
+        p3: '自动生成包含解题思路和解题过程的答案',
+        p4: '识别结果可直接编辑，改完即入库'
       }
     },
     search: {
       eyebrow: '第三件事',
       title: '便捷搜索',
-      sub: '不必记住章节与知识点目录，用平时说话的方式描述要找的题，模型会把它翻译成检索条件。',
+      sub: '不必记住章节与知识点目录，用平时说话的方式描述要找的题，人工智能会帮您找到一切。',
       p1: '自然语言提问，自动理解意图与限定条件',
       p2: '题干与解析同时匹配，召回更全',
       p3: '查到的题目可以一键加入试卷',
@@ -89,7 +90,7 @@ export default {
   },
   nav: {
     section: '工作区',
-    import: '导入新文件',
+    import: 'AI录题',
     recent: '近期文件',
     search: '搜索题库',
     compose: '沉浸式组卷',
@@ -160,7 +161,7 @@ export default {
     subtitle: '上传文档或图片，Ai自动识别题目并分析入库',
     drop: {
       title: '点击选择文件，或将文件拖拽到此处',
-      hint: '支持图片 / PDF  / Word / PPT，最大100MB 100页, 也可直接Ctrl/Command+V 粘贴截图或文件'
+      hint: '支持图片 / PDF  / Word / PPT，最大100MB 100页, 也可直接Ctrl+V / ⌘+V 粘贴截图或文件'
     },
     start: '开始识别处理',
     waiting: '正在识别处理文档…',
@@ -201,6 +202,12 @@ export default {
     bankInfo: '查看入库信息',
     panelTitle: 'AI 分析结果',
     panelHint: '您可以自由修改内容并保存',
+    tabAnalysis: 'AI 分析',
+    tabAnswer: '答案分析',
+    aiSolve: 'AI解题',
+    answerSolving: '解题中…',
+    updateBank: '更新题库',
+    updated: '已更新',
     close: '关闭',
     copyLatex: '复制 LaTeX',
     copied: '已复制 LaTeX 代码',
@@ -208,7 +215,7 @@ export default {
     saveToBank: '存入题库',
     saving: '保存中…',
     saved: '已存入题库',
-    saveEmpty: '暂无可保存的分析结果',
+    saveEmpty: '没有可保存的修改',
     edit: '编辑',
     editDone: '完成',
     mergeUp: '并入上方',
@@ -273,11 +280,16 @@ export default {
       titlePlaceholder: '请输入试卷标题',
       titleRequired: '请输入试卷标题',
       untitled: '未命名试卷',
-      tags: '标签',
-      tagsHint: '用逗号分隔，如 数学,期中',
       save: '保存',
       saving: '保存中…',
-      saved: '已保存'
+      saved: '已保存',
+      exportPdf: '导出 PDF',
+      exportWord: '导出 Word',
+      exporting: '正在生成…',
+      exported: 'PDF 已开始下载',
+      exportedWord: 'Word 已开始下载',
+      exportEmpty: '试卷还是空的，先插入题目再导出',
+      exportFailed: '文件生成失败，请稍后重试'
     }
   },
   auth: {
@@ -290,8 +302,10 @@ export default {
     signUpSub: '使用邮箱注册，畅享题目检索与分析',
     email: '邮箱',
     emailPlaceholder: "you{'@'}example.com",
+    signupEmailPlaceholder: '请输入您的邮箱地址',
     password: '密码',
     passwordPlaceholder: '8 位以上字母与数字组合',
+    signupPasswordPlaceholder: '请设置您的登录密码',
     code: '验证码',
     codePlaceholder: '请输入验证码',
     sendCode: '获取验证码',
@@ -354,11 +368,34 @@ export default {
     noDowngrade: '不可降级',
     ctaFree: '免费开始',
     ctaBuy: '立即购买',
+    notOpen: '暂未开放购买',
     footFree: '注册即赠 · 无需绑定支付',
     footBuy: '仅支持升级 · 不支持降级',
     note: '所有套餐购买后立即生效，积分与题目额度有效期一年；同一账号仅支持升级，不支持降级。',
     loading: '正在加载套餐…',
     empty: '暂时没有可购买的套餐'
+  },
+  /* 知识点绑定：按学段/学科维护，一道题可关联多个知识点 */
+  knowledge: {
+    label: '知识点',
+    select: '关联知识点',
+    title: '关联知识点',
+    relTitle: '知识点关联',
+    mergeHint: '随下方「存入题库 / 更新题库」一起保存',
+    unsavedHint: '本题尚未存入题库，选择的知识点将在入库时一并保存',
+    hint: '可多选，星标为主知识点',
+    searchPlaceholder: '搜索知识点名称或别名',
+    noData: '暂无知识点数据',
+    loading: '加载中…',
+    noResult: '没有匹配的知识点',
+    selected: '已选 {count} 个',
+    empty: '尚未关联知识点',
+    setPrimary: '设为主知识点',
+    clear: '清空',
+    cancel: '取消',
+    save: '保存',
+    saving: '保存中…',
+    saved: '知识点已保存'
   },
   search: {
     placeholder: '用自然语言描述你要找的题目，如「找一下瓜豆原理的题目」',

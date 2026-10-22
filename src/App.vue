@@ -285,6 +285,8 @@ function toggleAccount() {
 function logout() {
   clearAuth()
   accountOpen.value = false
+  // 工作台退出登录后回到公开主页
+  router.push('/')
 }
 
 function onDocumentClick(event) {

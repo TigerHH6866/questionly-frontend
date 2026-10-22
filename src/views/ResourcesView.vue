@@ -143,9 +143,6 @@
             <span class="card-rule" aria-hidden="true"></span>
 
             <div class="card-foot">
-              <span class="card-chips">
-                <span v-for="tag in tagList(row.tags)" :key="tag" class="card-chip">{{ tag }}</span>
-              </span>
               <span class="card-go" aria-hidden="true">
                 <svg viewBox="0 0 24 24" width="15" height="15" fill="none">
                   <path d="M5 12h13M12.5 6.5 19 12l-6.5 5.5" stroke="currentColor" stroke-width="1.8"
@@ -417,15 +414,6 @@ function preview(content) {
     .slice(0, 140)
 }
 
-/** 试卷标签用逗号分隔存储，拆成小胶囊展示 */
-function tagList(tags) {
-  return String(tags || '')
-    .split(/[,，]/)
-    .map((item) => item.trim())
-    .filter(Boolean)
-    .slice(0, 4)
-}
-
 /**
  * 题干是原始 Markdown，列表只做纯文本压平：去掉图片、公式定界符与转义反斜杠，
  * 不在这里截断——截断长度交给 CSS 的行数 clamp，换列宽/换语言时省略号位置才对得上
@@ -684,28 +672,9 @@ onMounted(() => load(activeTab.value, 1))
 .card-foot {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-end;
   gap: 10px;
   min-height: 24px;
-}
-
-.card-chips {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  min-width: 0;
-}
-
-/* 标签胶囊用极浅底 + 内描边，避免和 Element 的 el-tag 抢视觉 */
-.card-chip {
-  padding: 2px 9px;
-  border-radius: 999px;
-  background: var(--c-subtle);
-  box-shadow: inset 0 0 0 1px var(--c-border);
-  font-family: var(--font-heading);
-  font-size: 11.5px;
-  color: var(--c-mid-gray);
-  white-space: nowrap;
 }
 
 .card-go {

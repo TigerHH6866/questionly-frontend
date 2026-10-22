@@ -31,6 +31,10 @@ function handleUnauthorized(msg) {
 http.interceptors.response.use(
   (response) => {
     const body = response.data
+    // 二进制下载（试卷导出 PDF）不走统一解包
+    if (body instanceof Blob) {
+      return body
+    }
     if (body && typeof body.code === 'number' && body.code !== 0) {
       if (body.code === 401) {
         handleUnauthorized(body.msg)

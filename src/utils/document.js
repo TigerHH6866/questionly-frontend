@@ -131,7 +131,8 @@ function normalize(block) {
     case 'equation_interline':
       return { type, latex: block.content?.math_content ?? '' }
     case 'image':
-      return { type, imgPath: imagePathOf(block) }
+    case 'chart':
+      return { type: 'image', imgPath: imagePathOf(block) }
     default:
       return { type, ...breakOptions(spansToMarkdown(block)) }
   }
@@ -239,9 +240,83 @@ export function renderBlock(block, imagesBase) {
   }
 }
 
-/** 渲染一道题（块数组）为 HTML */
+/** 独立的选项字母块：A. / B． / C) / D、 */
+const OPTION_LABEL_RE = /^[（(]?[A-Fa-fＡ-Ｆ][）).．、]?$/
+
+function optionLabelOf(block) {
+  if (block.type !== 'paragraph') return ''
+  const text = (block.text || '').trim()
+  return OPTION_LABEL_RE.test(text) ? text : ''
+}
+
+/** 选项字母 + 选项图片成对渲染：2 个两列、3 个三列、4 个及以上每行两个 */
+function renderOptionGrid(pairs, imagesBase) {
+  const cols = pairs.length === 3 ? 3 : 2
+  const cells = pairs
+    .map(
+      (pair) =>
+        `<div class="blk-option"><span class="blk-option-label">${pair.label}</span>${renderBlock(
+          pair.image,
+          imagesBase
+        )}</div>`
+    )
+    .join('')
+  return `<div class="blk-options" data-cols="${cols}">${cells}</div>`
+}
+
+/** 渲染一道题（块数组）为 HTML；连续的图片块合并成一组，按数量自动分列 */
 export function renderQuestion(blocks, imagesBase) {
-  return (blocks || []).map((block) => renderBlock(block, imagesBase)).join('')
+  const parts = []
+  let group = []
+
+  function flushImages() {
+    if (!group.length) return
+    if (group.length === 1) {
+      parts.push(renderBlock(group[0], imagesBase))
+    } else {
+      // 2-3 张并排一行，4 张及以上每行两张
+      const cols = group.length <= 3 ? group.length : 2
+      const html = group.map((block) => renderBlock(block, imagesBase)).join('')
+      parts.push(`<div class="blk-images" data-cols="${cols}">${html}</div>`)
+    }
+    group = []
+  }
+
+  function readOptionPairs(start) {
+    const pairs = []
+    let cursor = start
+    while (cursor + 1 < blocks.length) {
+      const label = optionLabelOf(blocks[cursor])
+      if (!label || blocks[cursor + 1].type !== 'image') break
+      pairs.push({ label, image: blocks[cursor + 1] })
+      cursor += 2
+    }
+    return { pairs, next: cursor }
+  }
+
+  for (let i = 0; i < blocks.length; i += 1) {
+    const block = blocks[i]
+    if (block.type === 'image') {
+      group.push(block)
+      continue
+    }
+
+    // MinerU 会把「A. [图]」拆成独立的字母块和图片块，成组还原成选项网格
+    if (optionLabelOf(block) && blocks[i + 1]?.type === 'image') {
+      const { pairs, next } = readOptionPairs(i)
+      if (pairs.length >= 2) {
+        flushImages()
+        parts.push(renderOptionGrid(pairs, imagesBase))
+        i = next - 1
+        continue
+      }
+    }
+
+    flushImages()
+    parts.push(renderBlock(block, imagesBase))
+  }
+  flushImages()
+  return parts.join('')
 }
 
 /** 普通文本转 LaTeX 时需要转义的字符 */

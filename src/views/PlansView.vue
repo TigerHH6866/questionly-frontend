@@ -80,6 +80,7 @@ import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import SiteHeader from '@/components/landing/SiteHeader.vue'
 import SiteFooter from '@/components/landing/SiteFooter.vue'
+import { ElMessageBox } from 'element-plus'
 import { fetchPlans } from '@/api/pay'
 import { fetchCredits } from '@/api/auth'
 import { currentUser, isLoggedIn } from '@/utils/auth'
@@ -145,7 +146,7 @@ const cards = computed(() =>
   })
 )
 
-/** 档位动作：试用档未登录时直接引导注册，付费档广播支付事件（未登录由最外层 App 先弹登录） */
+/** 档位动作：试用档未登录时直接引导注册，付费档暂未开放购买（弹窗提示） */
 function act(card) {
   if (card.locked) return
   if (card.free) {
@@ -156,7 +157,10 @@ function act(card) {
     router.push('/app')
     return
   }
-  window.dispatchEvent(new CustomEvent('questionly:pay', { detail: { planId: card.planId } }))
+  ElMessageBox.alert(t('plans.notOpen'), '', {
+    confirmButtonText: t('common.confirm'),
+    center: true
+  }).catch(() => {})
 }
 
 async function loadPlans() {

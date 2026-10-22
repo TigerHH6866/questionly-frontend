@@ -155,7 +155,32 @@
 
       <aside v-if="panelIndex >= 0" class="panel">
         <div class="panel-head">
-          <span class="panel-tag">{{ t('process.panelTitle') }}</span>
+          <div class="panel-tabs">
+            <button
+              class="panel-tab"
+              type="button"
+              :class="{ 'is-active': panelTab === 'analysis' }"
+              @click="switchTab('analysis')"
+            >
+              {{ t('process.tabAnalysis') }}
+            </button>
+            <button
+              class="panel-tab"
+              type="button"
+              :class="{ 'is-active': panelTab === 'answer' }"
+              @click="switchTab('answer')"
+            >
+              {{ t('process.tabAnswer') }}
+            </button>
+            <button
+              class="panel-tab"
+              type="button"
+              :class="{ 'is-active': panelTab === 'knowledge' }"
+              @click="switchTab('knowledge')"
+            >
+              {{ t('knowledge.relTitle') }}
+            </button>
+          </div>
           <span class="panel-q">{{ t('process.questionLabel', { n: noOf(panelIndex) }) }}</span>
           <button
             class="panel-close"
@@ -169,7 +194,10 @@
             </svg>
           </button>
         </div>
+
+        <!-- AI 分析：可编辑的分析正文 -->
         <div
+          v-if="panelTab === 'analysis'"
           ref="panelBodyRef"
           class="panel-body"
           contenteditable="true"
@@ -177,13 +205,47 @@
           @input="onPanelInput"
         ></div>
 
+        <!-- 答案分析：默认空态给 AI 解题入口，生成后转为可编辑正文 -->
+        <template v-else-if="panelTab === 'answer'">
+          <div v-if="!hasAnswer" class="answer-empty">
+            <button class="answer-action" type="button" :disabled="solvingIndex >= 0" @click="generateAnswer">
+              <span v-if="solvingIndex >= 0" class="mini-spinner" aria-hidden="true"></span>
+              {{ solvingIndex >= 0 ? t('process.answerSolving') : t('process.aiSolve') }}
+            </button>
+          </div>
+          <div
+            v-else
+            ref="answerBodyRef"
+            class="panel-body"
+            contenteditable="true"
+            spellcheck="false"
+            @input="onAnswerInput"
+          ></div>
+        </template>
+
+        <!-- 知识点关联：独立标签，学段/学科按 AI 分析自动装填，知识点直接平铺可选 -->
+        <div v-else class="kp-tab">
+          <p v-if="panelQuestion && !panelQuestion.saved" class="kp-tab-hint">
+            {{ t('knowledge.unsavedHint') }}
+          </p>
+          <KnowledgePicker
+            inline
+            :question-id="panelQuestion?.questionId || ''"
+            :stage="pickerStage"
+            :subject="pickerSubject"
+            :local="!panelQuestion?.saved"
+            :initial="panelKnowledge"
+            @selected="onKnowledgeSelected"
+          />
+        </div>
+
         <div class="panel-foot">
-          <button class="save-bank" type="button" :disabled="saving || !!panelQuestion?.saved" @click="saveToBank">
+          <button class="save-bank" type="button" :disabled="saving" @click="saveToBank">
             <span v-if="saving" class="mini-spinner" aria-hidden="true"></span>
             {{ saving
               ? t('process.saving')
               : panelQuestion?.saved
-                ? t('process.saved')
+                ? t('process.updateBank')
                 : t('process.saveToBank') }}
           </button>
         </div>
@@ -214,12 +276,21 @@
 </template>
 
 <script setup>
-import { computed, inject, nextTick, onBeforeUnmount, onMounted, onUpdated, ref } from 'vue'
+import { computed, inject, nextTick, onBeforeUnmount, onMounted, onUpdated, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { getTaskResult, saveTaskDraft } from '@/api/ocr'
-import { analyzeQuestion, saveQuestion, getImportedQuestions, getQuestionDetail } from '@/api/question'
+import {
+  analyzeQuestion,
+  saveQuestion,
+  updateQuestion,
+  getImportedQuestions,
+  getQuestionDetail,
+  getQuestionAnswer,
+  getQuestionKnowledge,
+  saveQuestionKnowledge
+} from '@/api/question'
 import {
   toBlocks,
   splitQuestions,
@@ -231,6 +302,7 @@ import {
 import { renderMarkdown } from '@/utils/markdown'
 import { toEditedMarkdown, toQuestionMarkdown } from '@/utils/editedMarkdown'
 import { saveProcessState, getProcessState } from '@/utils/importSession'
+import KnowledgePicker from '@/components/KnowledgePicker.vue'
 
 const props = defineProps({ id: { type: String, required: true } })
 
@@ -270,6 +342,19 @@ const analyzingIndex = ref(-1)
 const panelIndex = ref(-1)
 const panelHtml = ref('')
 
+/** 面板当前标签：analysis=AI 分析 / answer=答案分析 */
+const panelTab = ref('analysis')
+/** 题目答案缓存：题号 -> Markdown（AI 解题或人工录入） */
+const answerCache = reactive(new Map())
+/** 答案面板里就地编辑后的 HTML：题号 -> HTML */
+const answerEdit = reactive(new Map())
+/** 已从题库读过答案的题号，避免切标签时反复请求 */
+const answerLoaded = new Set()
+/** 答案正文节点，读取编辑结果用 */
+const answerBodyRef = ref(null)
+/** 正在 AI 解题的题号，-1 表示无请求 */
+const solvingIndex = ref(-1)
+
 const busy = computed(() => analyzingIndex.value >= 0)
 
 /** 题数不超过该值一次性渲染；超过则滚动到附近再渲染 */
@@ -296,6 +381,174 @@ const panelBodyRef = ref(null)
 const saving = ref(false)
 /** 当前面板对应的题目 */
 const panelQuestion = computed(() => questionOf(panelIndex.value))
+
+/** 当前面板的题目是否已有答案内容（含「手动输入」进入的空编辑态） */
+const hasAnswer = computed(() => {
+  const index = panelIndex.value
+  return index >= 0 && (answerCache.has(index) || answerEdit.has(index))
+})
+
+/** 知识点标签的默认筛选与已选知识点 */
+const pickerStage = ref('')
+const pickerSubject = ref('')
+const panelKnowledge = ref([])
+/** 题目尚未入库时的知识点预选：题号 -> 选择结果 */
+const knowledgePending = new Map()
+/** 打开过知识点标签的题号：入库/更新时把当前选择一并提交 */
+const knowledgeTouched = new Set()
+
+/**
+ * 从 AI 分析 Markdown 中取年级 / 科目，规则与后端 QuestionService.extractLabel 一致：
+ * 形如「## 2. 年级」下一行的取值，或「科目：数学」写在标题行内。
+ */
+function extractLabel(markdown, ...keywords) {
+  const lines = (markdown || '').split(/\r?\n/)
+  for (let i = 0; i < lines.length; i += 1) {
+    const line = lines[i].trim()
+    if (!line.startsWith('#')) continue
+    const heading = line
+      .replace(/^#+\s*/, '')
+      .replace(/^[\d一二三四五六七八九十]+[.、．]?\s*/, '')
+    for (const keyword of keywords) {
+      const at = heading.indexOf(keyword)
+      if (at < 0) continue
+      const inline = heading
+        .slice(at + keyword.length)
+        .replace(/^[：:—\-–\s]+/, '')
+        .trim()
+      if (inline) return cleanLabel(inline)
+      for (let j = i + 1; j < lines.length; j += 1) {
+        const value = lines[j].trim()
+        if (!value) continue
+        if (value.startsWith('#')) break
+        return cleanLabel(value)
+      }
+    }
+  }
+  return ''
+}
+
+function cleanLabel(raw) {
+  return raw
+    .replace(/[（(].*$/, '')
+    .replace(/[*_`~]/g, '')
+    .replace(/^[-•·\s]+/, '')
+    .replace(/[。.;；,，]+$/, '')
+    .trim()
+}
+
+/** 年级文本归到知识点的三个学段 */
+function stageOf(grade) {
+  if (/小学|[一二三四五六]年级/.test(grade)) return '小学'
+  if (/初中|初[一二三]|[七八九]年级/.test(grade)) return '初中'
+  if (/高中|高[一二三]/.test(grade)) return '高中'
+  return ''
+}
+
+/** AI 报告里的学科写法归一为题库学科名（如思想政治→政治、信息科技→信息技术） */
+function normalizeSubject(raw, stage) {
+  const value = (raw || '').replace(/^(小学|初中|高中)/, '').trim()
+  if (!value) return ''
+  if (stage === '高中') {
+    if (/思想政治|思想品德|政治|道德与法治|道法/.test(value)) return '政治'
+    return value
+  }
+  if (stage === '初中') {
+    if (/思想政治|思想品德|政治|道德与法治|道法/.test(value)) return '道德与法治'
+    if (/信息科技|信息技术|计算机/.test(value)) return '信息技术'
+    return value
+  }
+  if (/信息科技|信息技术|计算机/.test(value)) return '信息技术'
+  if (/品德|道法/.test(value)) return '道德与法治'
+  return value
+}
+
+/** 当前面板题目在 AI 分析报告里的学段 / 学科，用于选择器默认值 */
+function analysisMeta(index) {
+  const markdown = analysisCache.get(index) || bankCache.get(index) || ''
+  const stage = stageOf(extractLabel(markdown, '学段', '年级'))
+  return {
+    stage,
+    subject: normalizeSubject(extractLabel(markdown, '科目', '学科'), stage)
+  }
+}
+
+/** 已入库题目还没读过分析正文时补拉一次，供学段/学科自动装填 */
+async function ensureAnalysisText(index) {
+  const question = questionOf(index)
+  if (!question?.saved || !question.questionId) return
+  if (analysisCache.has(index) || bankCache.has(index)) return
+  try {
+    const detail = await getQuestionDetail(question.questionId)
+    bankCache.set(index, detail?.details || '')
+  } catch {
+    // 分析正文只是默认值的来源，取不到不阻塞知识点选择
+  }
+}
+
+/** 载入当前面板题目的知识点：已入库走接口，未入库读本地预选 */
+async function loadPanelKnowledge(index = panelIndex.value) {
+  if (index < 0) {
+    panelKnowledge.value = []
+    return
+  }
+  const question = questionOf(index)
+  if (!question) {
+    panelKnowledge.value = []
+    return
+  }
+  // 已有改动但还没随入库提交的选择，以本地暂存为准，避免切换标签后丢失
+  if (knowledgePending.has(index)) {
+    panelKnowledge.value = knowledgePending.get(index) || []
+    return
+  }
+  if (question.saved && question.questionId) {
+    await ensureAnalysisText(index)
+    try {
+      panelKnowledge.value = (await getQuestionKnowledge(question.questionId)) || []
+    } catch {
+      panelKnowledge.value = []
+    }
+    return
+  }
+  panelKnowledge.value = []
+}
+
+/** 打开知识点标签前先备好学段/学科与已选：学段/学科取自 AI 分析报告 */
+async function prepareKnowledgeTab() {
+  const index = panelIndex.value
+  if (index < 0) return
+  await ensureAnalysisText(index)
+  const meta = analysisMeta(index)
+  pickerStage.value = meta.stage
+  pickerSubject.value = meta.subject
+  await loadPanelKnowledge(index)
+}
+
+/** 内嵌选择器的勾选实时同步到这里，等底部「存入题库 / 更新题库」时统一提交 */
+function onKnowledgeSelected(items) {
+  const index = panelIndex.value
+  if (index < 0) return
+  knowledgeTouched.add(index)
+  knowledgePending.set(index, items || [])
+  panelKnowledge.value = items || []
+}
+
+/** 把知识点标签里的选择随题目一起写入；没打开过该标签就跳过，避免覆盖原有绑定 */
+async function commitKnowledge(questionId, index) {
+  if (!knowledgeTouched.has(index)) return
+  const nodes = (knowledgePending.get(index) || panelKnowledge.value || []).map((item) => ({
+    knowledgeId: item.knowledgeId,
+    role: item.role
+  }))
+  try {
+    await saveQuestionKnowledge(questionId, nodes)
+    knowledgePending.delete(index)
+    knowledgeTouched.delete(index)
+  } catch {
+    // 知识点绑定失败不影响题目本身已保存
+  }
+}
 
 /** 正在编辑的题号（稳定 ocrIndex），-1 表示没有题目处于编辑态 */
 const editingIndex = ref(-1)
@@ -431,6 +684,7 @@ function activate(index) {
 
 function showPanel(index, markdown) {
   panelIndex.value = index
+  panelTab.value = 'analysis'
   // 编辑过的题目直接用编辑缓存还原，未编辑过的重新渲染 Markdown
   panelHtml.value = editCache.has(index) ? editCache.get(index) : renderMarkdown(markdown)
   nextTick(syncPanelBody)
@@ -448,6 +702,7 @@ function syncPanelBody() {
 function closePanel() {
   panelIndex.value = -1
   panelHtml.value = ''
+  panelKnowledge.value = []
 }
 
 /** 面板里就地编辑：只写缓存、不回写 panelHtml，避免重渲染打断光标 */
@@ -457,31 +712,124 @@ function onPanelInput() {
   editCache.set(panelIndex.value, el.innerHTML)
 }
 
-/** 存入题库：单题写入 questions 表，题干用题干 Markdown，details 用分析结果 Markdown */
+/** 切换面板标签：AI 分析 / 答案分析 / 知识点关联 */
+async function switchTab(tab) {
+  if (panelTab.value === tab) return
+  if (tab === 'knowledge') await prepareKnowledgeTab()
+  panelTab.value = tab
+  await nextTick()
+  if (tab === 'answer') await openAnswer()
+  else if (tab === 'analysis') syncPanelBody()
+}
+
+/**
+ * 打开答案标签：已有答案（含编辑态）直接展示；
+ * 已入库且没读过时，从题库读回已保存的答案；仍无答案则展示空态两个入口
+ */
+async function openAnswer() {
+  const index = panelIndex.value
+  if (index < 0) return
+  if (!answerCache.has(index) && !answerEdit.has(index)) {
+    const question = questionOf(index)
+    if (question?.saved && question.questionId && !answerLoaded.has(index)) {
+      answerLoaded.add(index)
+      try {
+        const saved = await getQuestionAnswer(question.questionId)
+        if (saved) answerCache.set(index, saved)
+      } catch {
+        // 答案只是辅助信息，取不到不阻塞，按空态展示
+      }
+    }
+  }
+  await nextTick()
+  syncAnswerBody()
+}
+
+/** 答案正文手动写入 innerHTML（与 AI 分析面板同策略，避免重渲染打断光标） */
+function syncAnswerBody() {
+  const el = answerBodyRef.value
+  const index = panelIndex.value
+  if (!el || index < 0) return
+  el.innerHTML = answerEdit.has(index) ? answerEdit.get(index) : renderMarkdown(answerCache.get(index) || '')
+}
+
+/** 答案面板里就地编辑：只写缓存 */
+function onAnswerInput() {
+  const el = answerBodyRef.value
+  const index = panelIndex.value
+  if (!el || index < 0) return
+  answerEdit.set(index, el.innerHTML)
+}
+
+/** AI 解题：按 biz_type=answer 调 LLM 生成答案并展示 */
+async function generateAnswer() {
+  const index = panelIndex.value
+  const question = questionOf(index)
+  if (!question || solvingIndex.value >= 0) return
+  // 题干可能正在编辑，先把编辑态写回模型，保证解的是最新内容
+  commitEdit()
+
+  solvingIndex.value = index
+  try {
+    const markdown = await analyzeQuestion(markdownOf(question), 'answer')
+    answerCache.set(index, markdown || '')
+    answerEdit.delete(index)
+    await nextTick()
+    syncAnswerBody()
+  } catch {
+    // 失败提示由 http 拦截器统一弹出，这里只恢复按钮状态
+  } finally {
+    solvingIndex.value = -1
+  }
+}
+
+/** 取当前题目的答案 Markdown：编辑过从 HTML 反推，否则用缓存原文 */
+function answerValueOf(index) {
+  if (answerEdit.has(index)) return toEditedMarkdown(answerEdit.get(index))
+  return answerCache.get(index) || ''
+}
+
+/**
+ * 保存：题干用题干 Markdown、分析结果用 AI 分析 Markdown、答案用答案 Markdown。
+ * 未入库时写入 questions 表（含 answers）；已入库时按题目 ID 更新分析结果与答案。
+ */
 async function saveToBank() {
   const index = panelIndex.value
   const question = questionOf(index)
-  if (!question || saving.value || question.saved) return
-  // 题干可能正在编辑，先把编辑态写回模型，保证入库的是最新内容
+  if (!question || saving.value) return
+  // 题干可能正在编辑，先把编辑态写回模型，保证保存的是最新内容
   commitEdit()
 
   const edited = editCache.get(index)
   const details = edited ? toEditedMarkdown(edited) : analysisCache.get(index) || ''
-  if (!details) {
+  const answers = answerValueOf(index)
+  if (!details && !answers) {
     ElMessage.warning(t('process.saveEmpty'))
     return
   }
 
   saving.value = true
   try {
-    // 返回题目在题库中的雪花 ID（已入库则返回已有 ID），写进模型并落草稿
-    const id = await saveQuestion(markdownOf(question), details, props.id, question.index)
-    question.questionId = id
-    question.saved = true
-    markDraftDirty()
-    ElMessage.success(t('process.saved'))
-    // 入库一道题消耗一份题目额度，同步账号胶囊里的余额
-    window.dispatchEvent(new CustomEvent('questionly:credits-refresh'))
+    if (question.saved && question.questionId) {
+      // 已入库：更新分析结果与答案（未改动的参数传 undefined 表示保持不变）
+      await updateQuestion(question.questionId, details || undefined, answers || undefined)
+      await commitKnowledge(question.questionId, index)
+      bankCache.delete(index)
+      ElMessage.success(t('process.updated'))
+    } else {
+      // 返回题目在题库中的雪花 ID（已入库则返回已有 ID），写进模型并落草稿
+      const id = await saveQuestion(markdownOf(question), details, answers, props.id, question.index)
+      question.questionId = id
+      question.saved = true
+      markDraftDirty()
+
+      // 知识点标签里已选的内容，拿到题目 ID 后一并写入绑定
+      await commitKnowledge(id, index)
+
+      ElMessage.success(t('process.saved'))
+      // 入库一道题消耗一份题目额度，同步账号胶囊里的余额
+      window.dispatchEvent(new CustomEvent('questionly:credits-refresh'))
+    }
   } catch {
     // 失败提示由 http 拦截器统一弹出
   } finally {
@@ -528,6 +876,7 @@ async function loadImported() {
       }
     })
     if (dirty) markDraftDirty()
+    if (panelIndex.value >= 0 && panelTab.value === 'answer') reloadPanelKnowledge()
   } catch {
     // 入库状态只是辅助信息，取不到不阻塞页面
   }
@@ -915,6 +1264,11 @@ async function removeQuestion(index) {
   // 题号标识可能在本次会话内被拆出来的新题复用，清掉缓存避免带出已删题的旧结果
   analysisCache.delete(index)
   editCache.delete(index)
+  answerCache.delete(index)
+  answerEdit.delete(index)
+  answerLoaded.delete(index)
+  knowledgePending.delete(index)
+  knowledgeTouched.delete(index)
 
   const pos = questions.value.indexOf(question)
   if (pos >= 0) questions.value.splice(pos, 1)
@@ -993,8 +1347,12 @@ function snapshot() {
     single: single.value,
     panelIndex: panelIndex.value,
     panelHtml: panelHtml.value,
+    panelTab: panelTab.value,
     analysis: new Map(analysisCache),
     edits: new Map(editCache),
+    answers: new Map(answerCache),
+    answerEdits: new Map(answerEdit),
+    answerLoaded: new Set(answerLoaded),
     scrollTop: scrollParentOf(rootRef.value)?.scrollTop ?? 0
   }
 }
@@ -1007,10 +1365,17 @@ function restore(state) {
   single.value = state.single
   panelIndex.value = state.panelIndex
   panelHtml.value = state.panelHtml
+  panelTab.value = state.panelTab || 'analysis'
   analysisCache.clear()
   state.analysis.forEach((markdown, index) => analysisCache.set(index, markdown))
   editCache.clear()
   state.edits.forEach((html, index) => editCache.set(index, html))
+  answerCache.clear()
+  state.answers?.forEach((answers, index) => answerCache.set(index, answers))
+  answerEdit.clear()
+  state.answerEdits?.forEach((html, index) => answerEdit.set(index, html))
+  answerLoaded.clear()
+  state.answerLoaded?.forEach((index) => answerLoaded.add(index))
 }
 
 async function load() {
@@ -1022,7 +1387,13 @@ async function load() {
     failed.value = false
     await nextTick()
     renderQuestions()
-    syncPanelBody()
+    if (panelTab.value === 'answer') {
+      syncAnswerBody()
+    } else if (panelTab.value === 'knowledge') {
+      // 知识点标签要等 AI 分析正文就绪后再挂载选择器，先从分析态切入
+      panelTab.value = 'analysis'
+      if (panelIndex.value >= 0) await switchTab('knowledge')
+    } else syncPanelBody()
     await nextTick()
     const scroller = scrollParentOf(rootRef.value)
     if (scroller) scroller.scrollTop = cached.scrollTop
@@ -1035,9 +1406,14 @@ async function load() {
   analyzingIndex.value = -1
   panelIndex.value = -1
   panelHtml.value = ''
+  panelTab.value = 'analysis'
   editingIndex.value = -1
+  solvingIndex.value = -1
   analysisCache.clear()
   editCache.clear()
+  answerCache.clear()
+  answerEdit.clear()
+  answerLoaded.clear()
 
   try {
     const data = await getTaskResult(props.id)
@@ -1497,22 +1873,109 @@ onBeforeUnmount(() => {
   border-bottom: 1px solid var(--c-border);
 }
 
-.panel-tag {
-  padding: 3px 12px;
+/* 面板标签：AI 分析 / 答案分析 */
+.panel-tabs {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.panel-tab {
+  height: 28px;
+  padding: 0 14px;
+  border: 1px solid transparent;
   border-radius: 999px;
-  background: rgba(217, 119, 87, 0.12);
-  color: var(--c-orange);
+  background: none;
+  color: var(--c-mid-gray);
   font-family: var(--font-heading);
-  font-size: 12px;
+  font-size: 12.5px;
   font-weight: 600;
   letter-spacing: 0.01em;
-  box-shadow: inset 0 0 0 1px rgba(217, 119, 87, 0.16);
+  cursor: pointer;
+  transition: background 0.2s var(--ease-soft), color 0.2s var(--ease-soft),
+    border-color 0.2s var(--ease-soft);
+}
+
+.panel-tab:hover {
+  color: var(--c-dark);
+  background: rgba(217, 119, 87, 0.08);
+}
+
+.panel-tab.is-active {
+  border-color: rgba(217, 119, 87, 0.28);
+  background: rgba(217, 119, 87, 0.12);
+  color: var(--c-orange);
 }
 
 .panel-q {
   font-family: var(--font-heading);
   font-size: 12px;
   font-variant-numeric: tabular-nums;
+  color: var(--c-mid-gray);
+}
+
+/* 答案空态：两个入口居中 */
+.answer-empty {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 0 24px;
+}
+
+.answer-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-width: 168px;
+  height: 34px;
+  padding: 0 20px;
+  border: 1px solid var(--c-orange);
+  border-radius: 999px;
+  background: var(--c-orange);
+  color: var(--c-on-accent);
+  font-family: var(--font-heading);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  box-shadow: 0 1px 2px rgba(217, 119, 87, 0.28);
+  transition: background 0.2s var(--ease-soft), border-color 0.2s var(--ease-soft),
+    color 0.2s var(--ease-soft), box-shadow 0.2s var(--ease-soft), transform 0.15s var(--ease-out);
+}
+
+.answer-action:hover:not(:disabled) {
+  border-color: var(--c-orange-hover);
+  background: var(--c-orange-hover);
+  transform: translateY(-1px);
+  box-shadow: 0 1px 3px rgba(217, 119, 87, 0.3), 0 8px 16px -9px rgba(217, 119, 87, 0.7);
+}
+
+.answer-action:disabled {
+  border-color: var(--c-border);
+  background: var(--c-light-gray);
+  color: var(--c-mid-gray);
+  box-shadow: none;
+  cursor: not-allowed;
+}
+
+/* 知识点关联标签：学段/学科与知识点列表在面板内就地展开 */
+.kp-tab {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+  padding: 0 24px;
+}
+
+.kp-tab-hint {
+  flex: none;
+  margin: 0 0 10px;
+  font-family: var(--font-heading);
+  font-size: 11.5px;
   color: var(--c-mid-gray);
 }
 
@@ -1811,11 +2274,84 @@ onBeforeUnmount(() => {
   margin: 16px 0;
 }
 
+/* 连续多图：按 data-cols 均分一行，4 张及以上每行两张 */
+:deep(.blk-images) {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: flex-start;
+  gap: 12px;
+  margin: 16px 0;
+}
+
+:deep(.blk-images > .blk-image) {
+  margin: 0;
+  min-width: 0;
+}
+
+:deep(.blk-images[data-cols='2'] > .blk-image) {
+  width: calc(50% - 6px);
+}
+
+:deep(.blk-images[data-cols='3'] > .blk-image) {
+  width: calc(33.333% - 8px);
+}
+
 :deep(.blk-image img) {
   max-width: 100%;
   border-radius: var(--radius-sm);
   border: 1px solid var(--c-border);
   box-shadow: var(--shadow-xs);
+}
+
+:deep(.blk-images > .blk-image img) {
+  display: block;
+  margin: 0 auto;
+  width: auto;
+  max-width: 100%;
+  height: auto;
+}
+
+/* 选项字母 + 选项图：两列排布，最多每行两个 */
+:deep(.blk-options) {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 14px 18px;
+  margin: 14px 0;
+}
+
+:deep(.blk-options > .blk-option) {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  min-width: 0;
+}
+
+:deep(.blk-options[data-cols='2'] > .blk-option) {
+  width: calc(50% - 9px);
+}
+
+:deep(.blk-options[data-cols='3'] > .blk-option) {
+  width: calc(33.333% - 12px);
+}
+
+:deep(.blk-option-label) {
+  flex: 0 0 auto;
+  padding-top: 8px;
+  line-height: 1.6;
+}
+
+:deep(.blk-option > .blk-image) {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+}
+
+:deep(.blk-option > .blk-image img) {
+  display: block;
+  max-width: 100%;
+  height: auto;
 }
 
 :deep(.blk-equation) {
