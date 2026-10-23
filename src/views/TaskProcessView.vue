@@ -30,7 +30,19 @@
       <!-- 文件标题卡片：投射到父级顶栏，与页标题同一行、与下方题目区域同一中轴线 -->
       <Teleport v-if="topbarSlot" :to="topbarSlot">
         <header class="head">
-          <span class="doc" :title="docName">{{ docName }}</span>
+          <template v-if="renaming">
+            <input
+              ref="nameInput"
+              v-model="nameDraft"
+              class="doc-input"
+              maxlength="100"
+              :placeholder="t('process.renamePlaceholder')"
+              @keydown.enter.prevent="commitRename"
+              @keydown.esc.prevent="cancelRename"
+              @blur="commitRename"
+            />
+          </template>
+          <span v-else class="doc" :title="t('process.renameHint')" @click="startRename">{{ docName }}</span>
           <span class="counter">{{ t('process.total', { total: questions.length }) }}</span>
         </header>
       </Teleport>
@@ -195,6 +207,47 @@
           </button>
         </div>
 
+        <!-- 元信息：学段 / 学科 / 布鲁姆认知目标 / 难度 四个下拉，按 AI 分析内容自动匹配；
+             匹配不到留空，由用户自行选择，随「存入题库 / 更新题库」一起落库 -->
+        <div class="panel-meta">
+          <select
+            v-model="metaStage"
+            class="panel-meta-select"
+            :class="{ 'is-empty': !metaStage }"
+            :aria-label="t('questionMeta.stage')"
+          >
+            <option value="">{{ t('questionMeta.stage') }}</option>
+            <option v-for="item in STAGES" :key="item" :value="item">{{ item }}</option>
+          </select>
+          <select
+            v-model="metaSubject"
+            class="panel-meta-select"
+            :class="{ 'is-empty': !metaSubject }"
+            :aria-label="t('questionMeta.subject')"
+          >
+            <option value="">{{ t('questionMeta.subject') }}</option>
+            <option v-for="item in SUBJECTS" :key="item" :value="item">{{ item }}</option>
+          </select>
+          <select
+            v-model="metaBloom"
+            class="panel-meta-select"
+            :class="{ 'is-empty': !metaBloom }"
+            :aria-label="t('questionMeta.bloom')"
+          >
+            <option value="">{{ t('questionMeta.bloom') }}</option>
+            <option v-for="item in BLOOM_TYPES" :key="item" :value="item">{{ item }}</option>
+          </select>
+          <select
+            v-model="metaDifficulty"
+            class="panel-meta-select"
+            :class="{ 'is-empty': !metaDifficulty }"
+            :aria-label="t('questionMeta.difficulty')"
+          >
+            <option value="">{{ t('questionMeta.difficulty') }}</option>
+            <option v-for="item in DIFFICULTIES" :key="item" :value="item">{{ item }}</option>
+          </select>
+        </div>
+
         <!-- AI 分析：可编辑的分析正文 -->
         <div
           v-if="panelTab === 'analysis'"
@@ -280,7 +333,7 @@ import { computed, inject, nextTick, onBeforeUnmount, onMounted, onUpdated, reac
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { getTaskResult, saveTaskDraft } from '@/api/ocr'
+import { getTaskResult, renameOcrTask, saveTaskDraft } from '@/api/ocr'
 import {
   analyzeQuestion,
   saveQuestion,
@@ -300,6 +353,17 @@ import {
   editedHtmlToLatex
 } from '@/utils/document'
 import { renderMarkdown } from '@/utils/markdown'
+import {
+  BLOOM_TYPES,
+  DIFFICULTIES,
+  STAGES,
+  SUBJECTS,
+  normalizeBloom,
+  normalizeDifficulty,
+  normalizeStage,
+  normalizeSubject as normalizeMetaSubject,
+  parseQuestionMeta
+} from '@/utils/questionMeta'
 import { toEditedMarkdown, toQuestionMarkdown } from '@/utils/editedMarkdown'
 import { saveProcessState, getProcessState } from '@/utils/importSession'
 import KnowledgePicker from '@/components/KnowledgePicker.vue'
@@ -333,6 +397,49 @@ const failed = ref(false)
 const docName = ref('')
 const imagesBase = ref('')
 const questions = ref([])
+/** 文件名就地编辑：进入编辑态、草稿值与输入框引用 */
+const renaming = ref(false)
+const nameDraft = ref('')
+const nameInput = ref(null)
+const savingName = ref(false)
+
+/** 点击文件名进入编辑态，自动聚焦并全选，便于直接覆盖输入 */
+async function startRename() {
+  if (!docName.value) return
+  nameDraft.value = docName.value
+  renaming.value = true
+  await nextTick()
+  nameInput.value?.focus()
+  nameInput.value?.select()
+}
+
+function cancelRename() {
+  renaming.value = false
+  nameDraft.value = docName.value
+}
+
+/** 回车或失焦时自动保存；内容未变化则直接退出编辑态 */
+async function commitRename() {
+  if (!renaming.value || savingName.value) return
+  const next = nameDraft.value.trim()
+  renaming.value = false
+  if (!next) {
+    nameDraft.value = docName.value
+    ElMessage.warning(t('process.renameEmpty'))
+    return
+  }
+  if (next === docName.value) return
+  savingName.value = true
+  try {
+    await renameOcrTask(props.id, next)
+    docName.value = next
+    ElMessage.success(t('process.renameSaved'))
+  } catch {
+    nameDraft.value = docName.value
+  } finally {
+    savingName.value = false
+  }
+}
 /** 全文作为单一题目兜底（未识别到题号）时，不显示题号标签 */
 const single = ref(true)
 
@@ -341,6 +448,16 @@ const analyzingIndex = ref(-1)
 /** 右侧面板展示的题号，-1 表示未展开 */
 const panelIndex = ref(-1)
 const panelHtml = ref('')
+
+/** 面板顶部四个元信息下拉：按 AI 分析内容匹配，匹配不到留空由用户选择 */
+const metaStage = ref('')
+const metaSubject = ref('')
+const metaBloom = ref('')
+const metaDifficulty = ref('')
+/** 已匹配过元信息的题号，同一题重新打开时保留用户的手动选择 */
+let metaIndex = -1
+/** 打开面板时的四维元信息快照，用于判断用户是否只改了下拉菜单 */
+let metaSnapshot = { stage: '', subject: '', bloom: '', difficulty: '' }
 
 /** 面板当前标签：analysis=AI 分析 / answer=答案分析 */
 const panelTab = ref('analysis')
@@ -682,9 +799,24 @@ function activate(index) {
   question.html = htmlOf(question)
 }
 
-function showPanel(index, markdown) {
+function showPanel(index, markdown, detail) {
   panelIndex.value = index
   panelTab.value = 'analysis'
+  // 四维元信息：已入库以库里存的值为准，未入库或库中为空时按分析内容匹配
+  if (metaIndex !== index) {
+    const parsed = parseQuestionMeta(markdown)
+    metaStage.value = normalizeStage(detail?.grade) || parsed.stage || ''
+    metaSubject.value = normalizeMetaSubject(detail?.subject) || parsed.subject || ''
+    metaBloom.value = normalizeBloom(detail?.bloomType) || parsed.bloomType || ''
+    metaDifficulty.value = normalizeDifficulty(detail?.difficulty) || parsed.difficulty || ''
+    metaIndex = index
+    metaSnapshot = {
+      stage: metaStage.value,
+      subject: metaSubject.value,
+      bloom: metaBloom.value,
+      difficulty: metaDifficulty.value
+    }
+  }
   // 编辑过的题目直接用编辑缓存还原，未编辑过的重新渲染 Markdown
   panelHtml.value = editCache.has(index) ? editCache.get(index) : renderMarkdown(markdown)
   nextTick(syncPanelBody)
@@ -703,6 +835,7 @@ function closePanel() {
   panelIndex.value = -1
   panelHtml.value = ''
   panelKnowledge.value = []
+  metaIndex = -1
 }
 
 /** 面板里就地编辑：只写缓存、不回写 panelHtml，避免重渲染打断光标 */
@@ -803,22 +936,33 @@ async function saveToBank() {
   const edited = editCache.get(index)
   const details = edited ? toEditedMarkdown(edited) : analysisCache.get(index) || ''
   const answers = answerValueOf(index)
-  if (!details && !answers) {
+  // 只改了四个元信息下拉也算有效修改（已入库题目可直接更新元信息）
+  const metaChanged = metaStage.value !== metaSnapshot.stage
+    || metaSubject.value !== metaSnapshot.subject
+    || metaBloom.value !== metaSnapshot.bloom
+    || metaDifficulty.value !== metaSnapshot.difficulty
+  if (!details && !answers && !metaChanged) {
     ElMessage.warning(t('process.saveEmpty'))
     return
   }
 
   saving.value = true
   try {
+    const meta = {
+      grade: metaStage.value,
+      subject: metaSubject.value,
+      bloomType: metaBloom.value,
+      difficulty: metaDifficulty.value
+    }
     if (question.saved && question.questionId) {
       // 已入库：更新分析结果与答案（未改动的参数传 undefined 表示保持不变）
-      await updateQuestion(question.questionId, details || undefined, answers || undefined)
+      await updateQuestion(question.questionId, details || undefined, answers || undefined, meta)
       await commitKnowledge(question.questionId, index)
       bankCache.delete(index)
       ElMessage.success(t('process.updated'))
     } else {
       // 返回题目在题库中的雪花 ID（已入库则返回已有 ID），写进模型并落草稿
-      const id = await saveQuestion(markdownOf(question), details, answers, props.id, question.index)
+      const id = await saveQuestion(markdownOf(question), details, answers, props.id, question.index, meta)
       question.questionId = id
       question.saved = true
       markDraftDirty()
@@ -829,6 +973,13 @@ async function saveToBank() {
       ElMessage.success(t('process.saved'))
       // 入库一道题消耗一份题目额度，同步账号胶囊里的余额
       window.dispatchEvent(new CustomEvent('questionly:credits-refresh'))
+    }
+    // 保存成功后同步元信息快照，避免再次点击时把「已保存」误判成没有修改
+    metaSnapshot = {
+      stage: metaStage.value,
+      subject: metaSubject.value,
+      bloom: metaBloom.value,
+      difficulty: metaDifficulty.value
     }
   } catch {
     // 失败提示由 http 拦截器统一弹出
@@ -900,7 +1051,7 @@ async function viewBankInfo(index) {
     const detail = await getQuestionDetail(question.questionId)
     const markdown = detail?.details || ''
     bankCache.set(index, markdown)
-    showPanel(index, markdown)
+    showPanel(index, markdown, detail)
   } catch {
     // 失败提示由 http 拦截器统一弹出
   } finally {
@@ -1547,6 +1698,31 @@ onBeforeUnmount(() => {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  cursor: text;
+  border-bottom: 1px dashed transparent;
+  transition: border-color 0.15s ease, color 0.15s ease;
+}
+
+.doc:hover {
+  border-bottom-color: var(--c-border);
+  color: var(--c-primary);
+}
+
+/* 就地编辑文件名：与展示态同字号、同字重，避免切换时跳动 */
+.doc-input {
+  flex: 1;
+  min-width: 0;
+  height: 30px;
+  padding: 0 8px;
+  font-family: var(--font-heading);
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--c-ink);
+  background: var(--c-subtle);
+  border: 1px solid var(--c-primary);
+  border-radius: var(--radius-sm);
+  outline: none;
 }
 
 /* 「共 N 题」走无衬线栈 + 等宽数字，避免数字宽度变化时右侧对不齐 */
@@ -1873,6 +2049,57 @@ onBeforeUnmount(() => {
   border-bottom: 1px solid var(--c-border);
 }
 
+/* 元信息行：四个等宽下拉（学段 / 学科 / 布鲁姆认知目标 / 难度），与题库面板保持一致 */
+.panel-meta {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: none;
+  padding: 0 24px 14px;
+  margin-bottom: 14px;
+  border-bottom: 1px solid var(--c-border);
+}
+
+.panel-meta-select {
+  flex: 0 1 94px;
+  min-width: 0;
+  height: 30px;
+  padding: 0 20px 0 10px;
+  border: 1px solid var(--c-border);
+  border-radius: 999px;
+  background-color: var(--c-surface);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='M3 5l3 3 3-3' fill='none' stroke='%238a8a8a' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 7px center;
+  background-size: 10px;
+  appearance: none;
+  color: var(--c-dark);
+  font-family: var(--font-heading);
+  font-size: 12.5px;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  cursor: pointer;
+  transition: border-color 0.2s var(--ease-soft), background-color 0.2s var(--ease-soft),
+    color 0.2s var(--ease-soft), box-shadow 0.2s var(--ease-soft);
+}
+
+.panel-meta-select:hover {
+  border-color: rgba(217, 119, 87, 0.55);
+  background-color: rgba(217, 119, 87, 0.06);
+}
+
+.panel-meta-select:focus {
+  outline: none;
+  border-color: var(--c-orange);
+  box-shadow: 0 0 0 3px rgba(217, 119, 87, 0.12);
+}
+
+/* 未匹配到（用户尚未选择）时用灰字当作占位 */
+.panel-meta-select.is-empty {
+  color: var(--c-mid-gray);
+}
+
 /* 面板标签：AI 分析 / 答案分析 */
 .panel-tabs {
   display: flex;
@@ -2080,6 +2307,8 @@ onBeforeUnmount(() => {
   font-family: var(--font-heading);
   font-size: 14px;
   font-weight: 600;
+  /* 保留 AI 分析里用于对齐的连续空格（HTML 默认会折叠） */
+  white-space: pre-wrap;
 }
 
 .panel-body :deep(h1:first-child),
@@ -2090,6 +2319,7 @@ onBeforeUnmount(() => {
 
 .panel-body :deep(p) {
   margin: 0 0 10px;
+  white-space: pre-wrap;
 }
 
 .panel-body :deep(ul),
@@ -2100,6 +2330,7 @@ onBeforeUnmount(() => {
 
 .panel-body :deep(li) {
   margin-bottom: 4px;
+  white-space: pre-wrap;
 }
 
 .panel-body :deep(table) {
@@ -2114,6 +2345,12 @@ onBeforeUnmount(() => {
   padding: 7px 10px;
   border: 1px solid var(--c-border);
   text-align: left;
+  white-space: pre-wrap;
+}
+
+/* 公式内部恢复默认折叠，避免 KaTeX 标记里的换行/缩进被 pre-wrap 展开 */
+.panel-body :deep(.katex) {
+  white-space: normal;
 }
 
 .panel-body :deep(th) {
@@ -2299,9 +2536,6 @@ onBeforeUnmount(() => {
 
 :deep(.blk-image img) {
   max-width: 100%;
-  border-radius: var(--radius-sm);
-  border: 1px solid var(--c-border);
-  box-shadow: var(--shadow-xs);
 }
 
 :deep(.blk-images > .blk-image img) {
@@ -2352,6 +2586,104 @@ onBeforeUnmount(() => {
   display: block;
   max-width: 100%;
   height: auto;
+}
+
+/* 多图 + 图下说明：每格一张图配自己的文字，2 图两列、3 图三列、4 图及以上每行两张 */
+:deep(.blk-labeled) {
+  display: grid;
+  gap: 14px 18px;
+  margin: 14px 0;
+}
+
+:deep(.blk-labeled[data-cols='1']) {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+:deep(.blk-labeled[data-cols='2']) {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+:deep(.blk-labeled[data-cols='3']) {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+:deep(.blk-labeled-cell) {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+:deep(.blk-labeled-cell > .blk-image) {
+  margin: 0;
+}
+
+:deep(.blk-labeled-cell > .blk-image img) {
+  display: block;
+  max-width: 100%;
+  max-height: 140px;
+  width: auto;
+  height: auto;
+}
+
+:deep(.blk-labeled-cell > .blk-para) {
+  margin: 0;
+  text-align: center;
+}
+
+/* 「材料」左右分栏：按原始版面把两栏图文并排还原 */
+:deep(.blk-cols) {
+  display: grid;
+  gap: 26px;
+  align-items: start;
+  margin: 14px 0;
+}
+
+:deep(.blk-col) {
+  min-width: 0;
+}
+
+/* 两栏顶部对齐：第一块不再留上间距 */
+:deep(.blk-col > :first-child) {
+  margin-top: 0;
+}
+
+/* 一栏内被 OCR 切开的连续图片：首尾相接排成一条，图注合并到下方 */
+:deep(.blk-strip) {
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  gap: 4px;
+}
+
+:deep(.blk-strip-item) {
+  margin: 0;
+  flex: 0 1 auto;
+  min-width: 0;
+}
+
+:deep(.blk-strip-item img) {
+  display: block;
+  width: auto;
+  max-width: 100%;
+  max-height: 132px;
+  height: auto;
+}
+
+:deep(.blk-strip-caption),
+:deep(.blk-strip-group) {
+  text-align: center;
+  font-size: 13px;
+  color: var(--c-mid-gray);
+}
+
+:deep(.blk-strip-caption) {
+  margin-top: 8px;
+}
+
+:deep(.blk-strip-group) {
+  margin-top: 4px;
 }
 
 :deep(.blk-equation) {

@@ -39,6 +39,10 @@ function renderWith(text, renderer) {
 
   out = renderer(out)
 
+  // markdown-it 会在列表项的块级内容前后插入换行；正文开启 pre-wrap 后这些换行会变成
+  // 可见空行（项目符号单独一行、文字缩进错位），这里统一剪掉列表项首尾的纯空白
+  out = out.replace(/<li([^>]*)>\s+/g, '<li$1>').replace(/\s+<\/li>/g, '</li>')
+
   for (const { token, html } of maths) {
     out = out.split(token).join(html)
   }

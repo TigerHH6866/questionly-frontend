@@ -120,6 +120,20 @@ function imagePathOf(block) {
   return typeof path === 'string' ? path : ''
 }
 
+/** 图片自带的说明（MinerU 把图下 A/B/C/D 放在 image_caption 里），按 span 拆开保留 */
+function imageCaptionsOf(block) {
+  const spans = block.content?.image_caption
+  if (!Array.isArray(spans)) return []
+  return spans
+    .map((span) => (span?.type === 'equation_inline' ? `$${span.content ?? ''}$` : span?.content ?? ''))
+    .map((text) => String(text).trim())
+    .filter(Boolean)
+}
+
+function imageCaptionOf(block) {
+  return imageCaptionsOf(block).join('')
+}
+
 /** 单块标准化，字段名以真实 MinerU 输出为准 */
 function normalize(block) {
   const type = block.type
@@ -132,7 +146,12 @@ function normalize(block) {
       return { type, latex: block.content?.math_content ?? '' }
     case 'image':
     case 'chart':
-      return { type: 'image', imgPath: imagePathOf(block) }
+      return {
+        type: 'image',
+        imgPath: imagePathOf(block),
+        caption: imageCaptionOf(block),
+        captions: imageCaptionsOf(block)
+      }
     default:
       return { type, ...breakOptions(spansToMarkdown(block)) }
   }
@@ -149,7 +168,7 @@ export function toBlocks(contentListV2) {
     page.forEach((block) => {
       if (!block || typeof block !== 'object' || !block.type) return
       if (NOISE_TYPES.has(block.type)) return
-      blocks.push({ ...normalize(block), pageIdx })
+      blocks.push({ ...normalize(block), pageIdx, bbox: block.bbox })
     })
   })
   return blocks
@@ -243,6 +262,9 @@ export function renderBlock(block, imagesBase) {
 /** 独立的选项字母块：A. / B． / C) / D、 */
 const OPTION_LABEL_RE = /^[（(]?[A-Fa-fＡ-Ｆ][）).．、]?$/
 
+/** 图片下方标识按 A-F 顺序排列 */
+const LETTERS = ['A', 'B', 'C', 'D', 'E', 'F']
+
 function optionLabelOf(block) {
   if (block.type !== 'paragraph') return ''
   const text = (block.text || '').trim()
@@ -262,6 +284,200 @@ function renderOptionGrid(pairs, imagesBase) {
     )
     .join('')
   return `<div class="blk-options" data-cols="${cols}">${cells}</div>`
+}
+
+/**
+ * 图片在上、文字说明在下：MinerU 把「A. 文字 B. 文字…」合并成一句放在图片run之后。
+ * 这里按 A-F 字母切分，把每段说明贴到对应图片下方。
+ */
+function splitOptionLabels(text) {
+  const source = (text || '').trim()
+  // 必须以选项字母开头，避免把「13. 题干…」这类下一题正文误判成图注
+  if (!/^[（(]?[A-Fa-fＡ-Ｆ][）).．、]/.test(source)) return []
+  const re = /(?:^|\s)[（(]?([A-Fa-fＡ-Ｆ])[）).．、]\s*/g
+  const marks = []
+  let match
+  while ((match = re.exec(source))) {
+    marks.push({
+        letter: match[1].toUpperCase(),
+        start: match.index + match[0].length,
+        end: match.index
+      })
+  }
+  if (marks.length < 2) return []
+  const items = marks.map((mark, idx) => ({
+    label: mark.letter,
+    text: source.slice(mark.start, idx + 1 < marks.length ? marks[idx + 1].end : source.length).trim()
+  }))
+  if (items.some((item) => !item.text)) return []
+  return items
+}
+
+/** 图片网格：每格一张图 + 图下说明，2 图两列、3 图三列、4 图及以上每行两张 */
+function renderLabeledCells(cells, imagesBase) {
+  const cols = cells.length >= 4 ? 2 : Math.max(cells.length, 1)
+  const html = cells
+    .map(({ image, caption }) => {
+      const text = caption
+        ? renderBlock({ type: 'paragraph', text: caption }, imagesBase)
+        : ''
+      return `<div class="blk-labeled-cell">${renderBlock(image, imagesBase)}${text}</div>`
+    })
+    .join('')
+  return `<div class="blk-labeled" data-cols="${cols}">${html}</div>`
+}
+
+function renderLabeledImages(images, labels, imagesBase) {
+  return renderLabeledCells(
+    images.map((image, idx) => ({ image, caption: `${labels[idx].label}. ${labels[idx].text}` })),
+    imagesBase
+  )
+}
+
+/** 一列内连续图片的说明：短的当标签合并成一行，长的（整组图注）单独一行 */
+function renderImageStrip(images, imagesBase) {
+  const captionsOf = (image) => (image.captions?.length ? image.captions : image.caption ? [image.caption] : [])
+  const everyTileLabeled = images.every((image) => captionsOf(image).some((cap) => cap.length <= 6))
+  // 说明是整句、无法拆成标签时，退回逐图带说明的网格
+  if (!everyTileLabeled) {
+    return renderLabeledCells(
+      images.map((image) => ({ image, caption: image.caption })),
+      imagesBase
+    )
+  }
+
+  const caps = images.flatMap(captionsOf)
+  const labels = caps.filter((cap) => cap.length <= 6)
+  const groups = caps.filter((cap) => cap.length > 6)
+  const tiles = images
+    .map(
+      (image) =>
+        `<figure class="blk-image blk-strip-item"><img src="${imagesBase}${image.imgPath}" alt="" loading="lazy"></figure>`
+    )
+    .join('')
+  const labelHtml = labels.length
+    ? `<div class="blk-strip-caption">${renderInline(labels.join('　'))}</div>`
+    : ''
+  const groupHtml = groups.length
+    ? `<div class="blk-strip-group">${renderInline(groups.join('　'))}</div>`
+    : ''
+  return `<div class="blk-strip">${tiles}</div>${labelHtml}${groupHtml}`
+}
+
+/** 一列内的块按顺序渲染：连续图片并成一条，其余按普通块渲染 */
+function renderColumnBlocks(blocks, imagesBase) {
+  const html = []
+  let run = []
+  function flushRun() {
+    if (!run.length) return
+    if (run.length === 1) {
+      const image = run[0]
+      html.push(
+        image.caption
+          ? renderLabeledCells([{ image, caption: image.caption }], imagesBase)
+          : renderBlock(image, imagesBase)
+      )
+    } else {
+      html.push(renderImageStrip(run, imagesBase))
+    }
+    run = []
+  }
+
+  blocks.forEach((block) => {
+    if (block.type === 'image') {
+      run.push(block)
+      return
+    }
+    flushRun()
+    html.push(renderBlock(block, imagesBase))
+  })
+  flushRun()
+  return html.join('')
+}
+
+/** 块与一个横向区间的重叠宽度 */
+function xOverlapOf(block, range) {
+  if (!block.bbox) return 0
+  return Math.max(0, Math.min(block.bbox[2], range.x1) - Math.max(block.bbox[0], range.x0))
+}
+
+/** 两个块纵向重叠占较矮者的比例 */
+function yOverlapRatio(a, b) {
+  if (!a.bbox || !b.bbox) return 0
+  const shorter = Math.min(a.bbox[3] - a.bbox[1], b.bbox[3] - b.bbox[1])
+  if (shorter <= 0) return 0
+  const overlap = Math.max(0, Math.min(a.bbox[3], b.bbox[3]) - Math.max(a.bbox[1], b.bbox[1]))
+  return overlap / shorter
+}
+
+/**
+ * 「材料」区里按原始 bbox 判断是否左右分栏。
+ * 图片与正文按横向区间聚成两簇，两簇之间有明显装订沟、且有图片纵向并排时才认定；
+ * 任何块横跨两栏都视为普通排版，避免误伤。
+ */
+function detectMaterialColumns(blocks) {
+  const positioned = blocks.filter((b) => b.bbox && (b.type === 'image' || b.type === 'paragraph'))
+  if (positioned.length < 3) return null
+
+  const sorted = [...positioned].sort((a, b) => a.bbox[0] - b.bbox[0])
+  const clusters = []
+  sorted.forEach((block) => {
+    const [x0, , x1] = block.bbox
+    const last = clusters[clusters.length - 1]
+    if (last && x0 - last.x1 <= 16) {
+      last.x1 = Math.max(last.x1, x1)
+      last.blocks.push(block)
+    } else {
+      clusters.push({ x0, x1, blocks: [block] })
+    }
+  })
+  if (clusters.length !== 2) return null
+
+  const [left, right] = clusters
+  if (right.x0 - left.x1 < 24) return null
+  if (!left.blocks.some((b) => b.type === 'image') || !right.blocks.some((b) => b.type === 'image')) return null
+
+  const sideBySide = left.blocks.some(
+    (l) => l.type === 'image' && right.blocks.some((r) => r.type === 'image' && yOverlapRatio(l, r) > 0.3)
+  )
+  if (!sideBySide) return null
+
+  const pageLeft = Math.min(...positioned.map((b) => b.bbox[0]))
+  const pageRight = Math.max(...positioned.map((b) => b.bbox[2]))
+  const pageWidth = pageRight - pageLeft
+  if (pageWidth <= 0) return null
+  if (left.x1 - left.x0 < pageWidth * 0.22 || right.x1 - right.x0 < pageWidth * 0.22) return null
+
+  // 每个块必须明确落在某一栏内；跨栏的块说明不是分栏排版
+  const assign = new Map()
+  for (const block of blocks) {
+    if (!block.bbox) return null
+    const width = block.bbox[2] - block.bbox[0]
+    if (width <= 0) return null
+    const leftShare = xOverlapOf(block, left) / width
+    const rightShare = xOverlapOf(block, right) / width
+    if (Math.max(leftShare, rightShare) < 0.6) return null
+    assign.set(block, leftShare >= rightShare ? 'left' : 'right')
+  }
+
+  return {
+    left: blocks.filter((b) => assign.get(b) === 'left'),
+    right: blocks.filter((b) => assign.get(b) === 'right'),
+    leftWidth: left.x1 - left.x0,
+    rightWidth: right.x1 - right.x0
+  }
+}
+
+function renderMaterialColumns(cols, imagesBase) {
+  const total = cols.leftWidth + cols.rightWidth
+  const leftFr = (cols.leftWidth / total).toFixed(4)
+  const rightFr = (cols.rightWidth / total).toFixed(4)
+  return (
+    `<div class="blk-cols" style="grid-template-columns:minmax(0,${leftFr}fr) minmax(0,${rightFr}fr)">` +
+    `<div class="blk-col">${renderColumnBlocks(cols.left, imagesBase)}</div>` +
+    `<div class="blk-col">${renderColumnBlocks(cols.right, imagesBase)}</div>` +
+    `</div>`
+  )
 }
 
 /** 渲染一道题（块数组）为 HTML；连续的图片块合并成一组，按数量自动分列 */
@@ -294,11 +510,83 @@ export function renderQuestion(blocks, imagesBase) {
     return { pairs, next: cursor }
   }
 
+  /**
+   * 「图 + 紧跟单个字母」交错排列：MinerU 会把图下的 A/B/C/D 拆成独立段落或
+   * 放进 image_caption；逐张配对成「图上、字母在下」的格子，漏识别的按位置补齐。
+   */
+  function readImageCells(start) {
+    const cells = []
+    let cursor = start
+    while (cursor < blocks.length && blocks[cursor].type === 'image') {
+      const label = blocks[cursor + 1] ? optionLabelOf(blocks[cursor + 1]) : ''
+      const raw = label.replace(/[^A-Za-zＡ-Ｚａ-ｚ]/g, '')
+      const code = raw ? raw.charCodeAt(0) : 0
+      cells.push({
+        image: blocks[cursor],
+        // 优先用紧随其后的字母块，否则取图片自带的 image_caption
+        caption: raw
+          ? String.fromCharCode(code >= 0xff21 ? code - 0xfee0 : code).toUpperCase()
+          : blocks[cursor].caption || ''
+      })
+      cursor += label ? 2 : 1
+    }
+    // 识别到的字母与所在位置一致时，把前面漏掉的 A/B/C 补上（如只认出 B、C 的三图）
+    if (cells.length >= 2 && cells.length <= 6) {
+      cells.forEach((cell, idx) => {
+        if (cell.caption !== LETTERS[idx]) return
+        for (let j = 0; j < idx; j += 1) {
+          if (!cells[j].caption) cells[j].caption = LETTERS[j]
+        }
+      })
+      // 末尾漏识别的字母：前面已按 A、B… 顺序对上时，按位置补齐
+      let matched = 0
+      while (matched < cells.length && cells[matched].caption === LETTERS[matched]) matched += 1
+      if (matched >= 2) {
+        for (let j = matched; j < cells.length; j += 1) {
+          if (!cells[j].caption) cells[j].caption = LETTERS[j]
+        }
+      }
+    }
+    return { cells, next: cursor }
+  }
+
   for (let i = 0; i < blocks.length; i += 1) {
     const block = blocks[i]
+
+    // 「材料」区里的左右并排图文：按 bbox 还原成两栏，图片、图注与正文各留在本栏内
+    if (block.type === 'title' && /^\s*材料/.test(block.text || '')) {
+      let sectionEnd = i + 1
+      while (sectionEnd < blocks.length && blocks[sectionEnd].type !== 'title') sectionEnd += 1
+      const cols = detectMaterialColumns(blocks.slice(i + 1, sectionEnd))
+      if (cols) {
+        flushImages()
+        parts.push(renderBlock(block, imagesBase))
+        parts.push(renderMaterialColumns(cols, imagesBase))
+        i = sectionEnd - 1
+        continue
+      }
+    }
+
     if (block.type === 'image') {
+      const { cells, next } = readImageCells(i)
+      if (cells.length >= 1 && cells.some((cell) => cell.caption)) {
+        flushImages()
+        parts.push(renderLabeledCells(cells, imagesBase))
+        i = next - 1
+        continue
+      }
       group.push(block)
       continue
+    }
+
+    // 图片 run 后面紧跟「A. 文字 B. 文字…」图注：把每段说明贴到对应图片下方
+    if (group.length >= 2 && group.length <= 6) {
+      const labels = splitOptionLabels(block.text)
+      if (labels.length === group.length) {
+        parts.push(renderLabeledImages(group, labels, imagesBase))
+        group = []
+        continue
+      }
     }
 
     // MinerU 会把「A. [图]」拆成独立的字母块和图片块，成组还原成选项网格
@@ -385,6 +673,7 @@ export function questionLatex(blocks, imagesBase = '') {
         break
       case 'image':
         if (block.imgPath) parts.push(`\\includegraphics[width=0.6\\linewidth]{${imagesBase}${block.imgPath}}`)
+        if (block.caption) parts.push(spansToLatex(block.caption))
         break
       default:
         if (block.text) parts.push(spansToLatex(block.text))
@@ -406,6 +695,7 @@ export function questionMarkdown(blocks, imagesBase = '') {
         break
       case 'image':
         if (block.imgPath) parts.push(`![题目插图](${imagesBase}${block.imgPath})`)
+        if (block.caption) parts.push(block.caption)
         break
       default:
         if (block.text) parts.push(block.text)

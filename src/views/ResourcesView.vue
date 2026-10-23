@@ -166,7 +166,7 @@
       </template>
     </template>
 
-    <!-- 我的题目：整题题干展开成 4 行，超出即省略；点开详情查看 AI 分析、就地编辑或删除 -->
+    <!-- 我的题目：题干按文件解析页的样式完整渲染；点击题目（或右侧箭头）在右侧展开分析面板 -->
     <template v-else>
       <div v-if="!loggedIn" class="placeholder">{{ t('resources.questions.needLogin') }}</div>
 
@@ -180,67 +180,110 @@
       </div>
 
       <template v-else>
-        <p class="count">{{ t('resources.questions.total', { total: lists.questions.total }) }}</p>
+        <div class="qs-layout" :class="{ 'has-panel': activeQuestion }">
+          <div class="qs-main">
+            <p class="count">{{ t('resources.questions.total', { total: lists.questions.total }) }}</p>
 
-        <ul class="rows">
-          <li
-            v-for="(row, i) in lists.questions.rows"
-            :key="row.id"
-            class="row"
-            tabindex="0"
-            :style="{ animationDelay: `${Math.min(i, 11) * 20}ms` }"
-            @click="openQuestion(row)"
-            @keydown.enter="openQuestion(row)"
-          >
-            <div class="row-head">
-              <span class="row-ico" aria-hidden="true">
-                <svg viewBox="0 0 24 24" width="14" height="14" fill="none">
-                  <circle cx="12" cy="12" r="8.2" stroke="currentColor" stroke-width="1.7" />
-                  <path
-                    d="M9.7 9.8a2.3 2.3 0 1 1 3.2 2.1c-.6.3-.9.8-.9 1.4v.5"
-                    stroke="currentColor"
-                    stroke-width="1.7"
-                    stroke-linecap="round"
-                  />
-                  <circle cx="12" cy="16.5" r="1" fill="currentColor" />
-                </svg>
-              </span>
-              <span v-if="row.subject" class="row-kind">{{ row.subject }}</span>
-              <span v-if="row.subject && row.grade" class="row-sep">/</span>
-              <span v-if="row.grade" class="row-kind">{{ row.grade }}</span>
-              <span class="row-sep" v-if="row.subject || row.grade">/</span>
-              <span class="row-time">{{ formatTime(row.createdAt) }}</span>
+            <ul class="rows">
+              <li
+                v-for="(row, i) in lists.questions.rows"
+                :key="row.id"
+                class="row"
+                :class="{ 'is-active': activeQuestion?.id === row.id }"
+                tabindex="0"
+                :style="{ animationDelay: `${Math.min(i, 11) * 20}ms` }"
+                @click="openQuestion(row)"
+                @keydown.enter="openQuestion(row)"
+              >
+                <div class="row-head">
+                  <span class="row-ico" aria-hidden="true">
+                    <svg viewBox="0 0 24 24" width="14" height="14" fill="none">
+                      <path
+                        d="M12 3.4 20 7.5l-8 4.1-8-4.1 8-4.1Z"
+                        stroke="currentColor"
+                        stroke-width="1.7"
+                        stroke-linejoin="round"
+                      />
+                      <path d="m4 12 8 4.1 8-4.1" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round" />
+                      <path d="m4 16.4 8 4.1 8-4.1" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round" />
+                    </svg>
+                  </span>
+                  <span v-if="row.subject" class="row-kind">{{ row.subject }}</span>
+                  <span v-if="row.subject && row.grade" class="row-sep">/</span>
+                  <span v-if="row.grade" class="row-kind">{{ row.grade }}</span>
 
-              <button class="row-act" type="button" @click.stop="removeQuestion(row)">
-                {{ t('search.delete') }}
-              </button>
+                  <!-- 来源：题目导入时的文件名，后端联表 ocr_task 带出；文件名过长时省略 -->
+                  <template v-if="row.sourceName">
+                    <span v-if="row.subject || row.grade" class="row-sep">/</span>
+                    <span class="row-source" :title="row.sourceName">
+                      <svg viewBox="0 0 24 24" width="12" height="12" fill="none" aria-hidden="true">
+                        <path
+                          d="M13.5 3.6H7.4A1.8 1.8 0 0 0 5.6 5.4v13.2a1.8 1.8 0 0 0 1.8 1.8h9.2a1.8 1.8 0 0 0 1.8-1.8V8.4l-4.9-4.8Z"
+                          stroke="currentColor"
+                          stroke-width="1.7"
+                          stroke-linejoin="round"
+                        />
+                        <path d="M13.3 3.8v4.6h4.7" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round" />
+                      </svg>
+                      <span class="row-source-name">{{ row.sourceName }}</span>
+                    </span>
+                  </template>
+
+                  <div class="row-tools">
+                    <button
+                      class="row-open"
+                      type="button"
+                      :title="t('resources.questions.detail')"
+                      :aria-label="t('resources.questions.detail')"
+                      @click.stop="openQuestion(row)"
+                    >
+                      <svg viewBox="0 0 24 24" width="14" height="14" fill="none" aria-hidden="true">
+                        <path
+                          d="m9 5 7 7-7 7"
+                          stroke="currentColor"
+                          stroke-width="1.8"
+                          stroke-linecap="round"
+                          stroke-linejoin="round"
+                        />
+                      </svg>
+                    </button>
+                    <button class="row-act" type="button" @click.stop="removeQuestion(row)">
+                      {{ t('search.delete') }}
+                    </button>
+                  </div>
+                </div>
+
+                <!-- 题干是题库里的 Markdown（含公式、图片与表格），按文件解析页的排版完整渲染 -->
+                <div class="row-stem" v-html="renderRichMarkdown(row.title)"></div>
+
+                <!-- 入库时间移到行尾右下角，让行头只放学科 / 学段 / 来源 -->
+                <div class="row-foot">
+                  <span class="row-time">{{ formatTime(row.createdAt) }}</span>
+                </div>
+              </li>
+            </ul>
+
+            <div class="list-foot">
+              <el-pagination
+                background
+                layout="prev, pager, next"
+                :total="lists.questions.total"
+                :page-size="QUESTION_PAGE_SIZE"
+                :current-page="lists.questions.pageNo"
+                @current-change="(next) => goPage('questions', next)"
+              />
             </div>
+          </div>
 
-            <!-- 题干是原始 Markdown，这里只做纯文本压平；截断交给 CSS 的 4 行 clamp，
-                 这样省略号会跟着卡片宽度自适应，而不是被 JS 固定切在某个字数上 -->
-            <p class="row-stem">{{ plainText(row.title) }}</p>
-          </li>
-        </ul>
-
-        <div class="list-foot">
-          <el-pagination
-            background
-            layout="prev, pager, next"
-            :total="lists.questions.total"
-            :page-size="PAGE_SIZE"
-            :current-page="lists.questions.pageNo"
-            @current-change="(next) => goPage('questions', next)"
+          <QuestionBankPanel
+            v-if="activeQuestion"
+            :key="activeQuestion.id"
+            :question="activeQuestion"
+            @close="activeQuestion = null"
           />
         </div>
       </template>
     </template>
-
-    <QuestionDetailModal
-      v-if="activeQuestion"
-      :question="activeQuestion"
-      @close="activeQuestion = null"
-      @deleted="onQuestionDeleted"
-    />
   </div>
 </template>
 
@@ -253,13 +296,16 @@ import { deleteOcrTask, pageOcrTasks } from '@/api/ocr'
 import { pagePapers } from '@/api/paper'
 import { deleteQuestion, pageQuestions } from '@/api/question'
 import { currentUser, isLoggedIn } from '@/utils/auth'
-import QuestionDetailModal from '@/components/QuestionDetailModal.vue'
+import { renderRichMarkdown } from '@/utils/markdown'
+import QuestionBankPanel from '@/components/QuestionBankPanel.vue'
 
 /**
- * 三个标签页都是完整列表，每页 20 条、可翻页。
+ * 三个标签页都是完整列表、可翻页。
+ * 文件与试卷每页 20 条；题库每页 10 条（题干完整渲染后单行更高）。
  * 与侧栏「近期文件」（只列最近 10 条、不翻页）是两种定位，不要共用同一个常量。
  */
 const PAGE_SIZE = 20
+const QUESTION_PAGE_SIZE = 10
 
 const { t } = useI18n()
 const route = useRoute()
@@ -290,13 +336,13 @@ const lists = reactive({
   questions: { rows: [], total: 0, pageNo: 1, loaded: false }
 })
 
-/** 正在查看详情的题目（列表行摘要），非空时弹详情面板 */
+/** 正在查看分析详情的题目（列表行摘要），非空时在右侧展开面板 */
 const activeQuestion = ref(null)
 
 const LOADERS = {
   files: (pageNo) => pageOcrTasks(pageNo, PAGE_SIZE),
   papers: (pageNo) => pagePapers(pageNo),
-  questions: (pageNo) => pageQuestions(pageNo)
+  questions: (pageNo) => pageQuestions(pageNo, QUESTION_PAGE_SIZE)
 }
 
 // 递增序号用于丢弃过期响应：快速切标签时，先发出的请求可能后返回
@@ -412,19 +458,6 @@ function preview(content) {
     .replace(/\s+/g, ' ')
     .trim()
     .slice(0, 140)
-}
-
-/**
- * 题干是原始 Markdown，列表只做纯文本压平：去掉图片、公式定界符与转义反斜杠，
- * 不在这里截断——截断长度交给 CSS 的行数 clamp，换列宽/换语言时省略号位置才对得上
- */
-function plainText(markdown) {
-  return String(markdown || '')
-    .replace(/!\[[^\]]*\]\([^\s)]*\)/g, ' ')
-    .replace(/\\/g, '')
-    .replace(/\$/g, '')
-    .replace(/\s+/g, ' ')
-    .trim()
 }
 
 function formatTime(value) {
@@ -711,7 +744,22 @@ onMounted(() => load(activeTab.value, 1))
   color: var(--c-danger);
 }
 
-/* ---------------- 题目：整行题干的四行文本 ---------------- */
+/* ---------------- 题目：完整题干 + 右侧分析面板 ---------------- */
+
+/* 题目列与右侧面板并排：题目列可收缩、面板固定 768px，
+   与文件解析页的布局同一套行为（窄屏时面板整块移到题目列下方） */
+.qs-layout {
+  display: flex;
+  align-items: flex-start;
+  gap: 24px;
+  width: 100%;
+}
+
+.qs-main {
+  flex: 0 1 900px;
+  max-width: 900px;
+  min-width: 0;
+}
 
 /* 题目行宽对齐文件处理页的题目列（.q-col 同为 900px），
    在这两页之间来回切换时正文的左右边缘落在同一条线上 */
@@ -744,6 +792,13 @@ onMounted(() => load(activeTab.value, 1))
   transform: translateY(-1px);
 }
 
+/* 正在右侧面板里查看的那一行：主色描边 + 左侧竖线，和文件解析页选中题目的高亮同一语言 */
+.row.is-active {
+  border-color: rgba(217, 119, 87, 0.55);
+  background: rgba(217, 119, 87, 0.06);
+  box-shadow: inset 3px 0 0 var(--c-orange), var(--shadow-sm);
+}
+
 .row:focus-visible {
   outline: none;
   border-color: var(--c-orange);
@@ -756,10 +811,11 @@ onMounted(() => load(activeTab.value, 1))
   gap: 7px;
   margin-bottom: 9px;
   font-family: var(--font-heading);
-  font-size: 11px;
+  font-size: 13px;
   letter-spacing: 0.06em;
   text-transform: uppercase;
-  color: var(--c-mid-gray);
+  /* 整行行头（学科 / 学段 / 来源）统一用主题色高亮 */
+  color: var(--c-orange);
 }
 
 .row-ico {
@@ -772,30 +828,160 @@ onMounted(() => load(activeTab.value, 1))
 }
 
 .row-sep {
-  color: var(--c-border);
+  color: rgba(217, 119, 87, 0.38);
+}
+
+/* 来源文件名：跟学科 / 学段同一行，超长时省略，悬停看完整文件名 */
+.row-source {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 300px;
+  text-transform: none;
+  letter-spacing: 0.01em;
+}
+
+.row-source svg {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  opacity: 0.75;
+}
+
+.row-source-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 入库时间：移到行尾右下角 */
+.row-foot {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 10px;
 }
 
 .row-time {
+  font-family: var(--font-heading);
+  font-size: 11px;
   letter-spacing: 0.02em;
   text-transform: none;
+  color: var(--c-mid-gray);
+  font-variant-numeric: tabular-nums;
 }
 
-/* 题干展开 4 行，超出省略：Math/Physics 题干常带多小问，四行正好把主干交代清楚 */
+/* 题干完整展开：Markdown 正文、公式、图片与表格按文件解析页的排版渲染 */
 .row-stem {
-  margin: 0;
   font-family: var(--font-body);
-  font-size: 13.5px;
-  line-height: 1.82;
+  font-size: 14px;
+  line-height: 1.9;
   color: var(--c-dark);
-  display: -webkit-box;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 4;
-  overflow: hidden;
+  word-break: break-word;
 }
 
-/* 删除按钮贴到行首右侧，避免 4 行题干把按钮推到列表末尾 */
-.row-act {
+.row-stem :deep(p) {
+  margin: 0 0 10px;
+}
+
+.row-stem :deep(p:last-child) {
+  margin-bottom: 0;
+}
+
+.row-stem :deep(h1),
+.row-stem :deep(h2),
+.row-stem :deep(h3),
+.row-stem :deep(h4) {
+  margin: 12px 0 10px;
+  font-family: var(--font-heading);
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.row-stem :deep(h1:first-child),
+.row-stem :deep(h2:first-child),
+.row-stem :deep(h3:first-child) {
+  margin-top: 0;
+}
+
+.row-stem :deep(ul),
+.row-stem :deep(ol) {
+  margin: 0 0 10px;
+  padding-left: 20px;
+}
+
+.row-stem :deep(li) {
+  margin-bottom: 4px;
+}
+
+.row-stem :deep(table) {
+  width: 100%;
+  margin: 12px 0;
+  border-collapse: collapse;
+}
+
+.row-stem :deep(th),
+.row-stem :deep(td) {
+  padding: 7px 10px;
+  border: 1px solid var(--c-border);
+  font-size: 13.5px;
+  font-variant-numeric: tabular-nums;
+}
+
+.row-stem :deep(th) {
+  background: var(--c-subtle);
+  font-family: var(--font-heading);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.row-stem :deep(img) {
+  max-width: 100%;
+}
+
+.row-stem :deep(.katex-display) {
+  margin: 12px 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
+/* 行头右侧的操作组：展开分析 + 删除，整体贴右 */
+.row-tools {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   margin-left: auto;
+  flex: none;
+}
+
+/* 展开分析入口：常态低调，hover 时点亮主色并右移，提示「点开看分析」 */
+.row-open {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 1px solid var(--c-border);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--c-mid-gray);
+  cursor: pointer;
+  transition: border-color 0.2s var(--ease-soft), background 0.2s var(--ease-soft),
+    color 0.2s var(--ease-soft), transform 0.2s var(--ease-out);
+}
+
+.row-open:hover {
+  border-color: rgba(217, 119, 87, 0.55);
+  background: rgba(217, 119, 87, 0.08);
+  color: var(--c-orange);
+  transform: translateX(2px);
+}
+
+/* 删除入口：常态低调，hover 时转成危险色，避免误点 */
+.row-act {
   flex: none;
   height: 26px;
   padding: 0 12px;

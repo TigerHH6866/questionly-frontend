@@ -193,6 +193,10 @@ export default {
     loadFailed: 'Failed to load the parsed result',
     retry: 'Retry',
     total: '{total} questions',
+    renameHint: 'Click to rename',
+    renamePlaceholder: 'File name',
+    renameSaved: 'File name updated',
+    renameEmpty: 'File name cannot be empty',
     questionLabel: 'Question {n}',
     empty: 'No question detected',
     analyze: 'AI Analyze',
@@ -419,5 +423,11 @@ export default {
     saveEdit: 'Save changes',
     saveEditEmpty: 'Analysis content cannot be empty',
     updated: 'Changes saved'
+  },
+  questionMeta: {
+    stage: 'Stage',
+    subject: 'Subject',
+    bloom: 'Bloom',
+    difficulty: 'Difficulty'
   }
 }

@@ -31,9 +31,28 @@
         <p v-else-if="!hits.length" class="body-tip">{{ t('compose.search.empty') }}</p>
 
         <ul v-else class="hits">
-          <li v-for="hit in hits" :key="hit.id" class="hit">
+          <li
+            v-for="hit in hits"
+            :key="hit.id"
+            class="hit"
+            :class="{ 'is-active': panelHit && panelHit.id === hit.id }"
+            @click="openPanel(hit)"
+          >
+            <!-- 来源文件：卡片顶部一行，超长省略 -->
+            <p v-if="hit.sourceName" class="hit-source" :title="hit.sourceName">
+              <svg viewBox="0 0 24 24" width="12" height="12" fill="none" aria-hidden="true">
+                <path
+                  d="M14 3.5H7.5A1.5 1.5 0 0 0 6 5v14a1.5 1.5 0 0 0 1.5 1.5h9A1.5 1.5 0 0 0 18 19V7.5L14 3.5Z"
+                  stroke="currentColor"
+                  stroke-width="1.6"
+                  stroke-linejoin="round"
+                />
+                <path d="M13.8 3.7V7.7h4" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" />
+              </svg>
+              <span>{{ hit.sourceName }}</span>
+            </p>
             <div class="hit-text" v-html="hit.html"></div>
-            <button type="button" class="hit-add" @mousedown="keepFocus" @click="insert(hit)">
+            <button type="button" class="hit-add" @mousedown="keepFocus" @click.stop="insert(hit)">
               <svg viewBox="0 0 24 24" width="14" height="14" fill="none" aria-hidden="true">
                 <path d="M12 5.4v13.2M5.4 12h13.2" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
               </svg>
@@ -103,6 +122,17 @@
           {{ t('compose.search.button') }}
         </button>
       </form>
+
+      <!-- 题目详情：点击检索结果后在搜索区右侧唤出，只读查看 AI 分析与知识点 -->
+      <aside v-if="panelQuestion" class="hit-panel">
+        <QuestionBankPanel
+          :key="panelQuestion.id"
+          :question="panelQuestion"
+          readonly
+          :show-answer="false"
+          @close="panelHit = null"
+        />
+      </aside>
     </section>
 
     <!-- 中：排版区（传统文档编辑模式：白纸页面 + 正文可直接编辑；本身无底色无边框，露出页面网格） -->
@@ -286,6 +316,7 @@ import { useI18n } from 'vue-i18n'
 import { ElMessage } from 'element-plus'
 import { createPaper, exportPaperDocx, exportPaperPdf, getPaper, updatePaper } from '@/api/paper'
 import { searchQuestions } from '@/api/question'
+import QuestionBankPanel from '@/components/QuestionBankPanel.vue'
 import { recognizeAudio } from '@/api/asr'
 import { renderRichMarkdown } from '@/utils/markdown'
 import { isLoggedIn } from '@/utils/auth'
@@ -371,6 +402,11 @@ const total = ref(0)
 const pageNo = ref(1)
 const pageSize = ref(20)
 const searchId = ref(null)
+/** 当前展开详情的检索结果（点击卡片右侧唤出只读面板） */
+const panelHit = ref(null)
+const panelQuestion = computed(() =>
+  panelHit.value ? { id: panelHit.value.id, title: panelHit.value.title } : null
+)
 
 const sheetRef = ref(null)
 const canvasRef = ref(null)
@@ -634,17 +670,27 @@ async function back() {
 function toHit(raw) {
   return {
     id: String(raw.id),
-    html: renderRichMarkdown(raw.title || '')
+    title: raw.title || '',
+    html: renderRichMarkdown(raw.title || ''),
+    sourceName: raw.sourceName || ''
   }
 }
 
-/** 用接口返回的分页数据刷新结果列表 */
+/** 用接口返回的分页数据刷新结果列表：接口最新在前，这里倒序显示，最新的落在最底部 */
 function applyPage(data) {
   searchId.value = data.searchId
   total.value = Number(data.total) || 0
   pageNo.value = Number(data.page) || 1
   pageSize.value = Number(data.pageSize) || 20
-  hits.value = (data.records || []).map(toHit)
+  hits.value = (data.records || []).map(toHit).reverse()
+  if (panelHit.value && !hits.value.some((hit) => hit.id === panelHit.value.id)) {
+    panelHit.value = null
+  }
+}
+
+/** 点击检索结果：右侧唤出只读详情（AI 分析 / 知识点） */
+function openPanel(hit) {
+  panelHit.value = panelHit.value && panelHit.value.id === hit.id ? null : hit
 }
 
 /** 发提问：首次检索（输入条提交即检索） */
@@ -2067,6 +2113,7 @@ html.dark .editor {
 
 /* ---------- 左：搜索区 ---------- */
 .search-card {
+  position: relative;
   display: flex;
   flex-direction: column;
   flex: 0 0 472px;
@@ -2162,10 +2209,74 @@ html.dark .editor {
   border: 1px solid var(--c-border);
   border-radius: var(--radius-sm);
   background: var(--c-subtle);
+  cursor: pointer;
   transition: border-color 0.2s var(--ease-soft), background 0.2s var(--ease-soft);
 }
 
-.hit:hover {
+/* 来源文件：卡片顶部一行（文件仍存在用当前名，已删除回落到快照） */
+.hit-source {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin: 0 0 7px;
+  font-family: var(--font-heading);
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--c-mid-gray);
+}
+
+.hit-source svg {
+  flex: none;
+  opacity: 0.75;
+}
+
+.hit-source span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.hit.is-active {
+  border-color: var(--c-orange);
+  background: rgba(217, 119, 87, 0.1);
+}
+
+/* 检索结果详情：从搜索区右侧唤出，浮在排版区之上，只读 */
+.hit-panel {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: calc(100% + 14px);
+  z-index: 20;
+  display: flex;
+  width: 460px;
+  animation: hit-panel-in 0.18s var(--ease-soft);
+}
+
+.hit-panel :deep(.qb) {
+  position: static;
+  flex: 1 1 auto;
+  width: 100%;
+  max-width: 100%;
+  min-height: 0;
+  max-height: 100%;
+  box-shadow: var(--shadow-md), var(--inset-top);
+}
+
+@keyframes hit-panel-in {
+  from {
+    opacity: 0;
+    transform: translateX(-10px);
+  }
+
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.hit:not(.is-active):hover {
   border-color: rgba(217, 119, 87, 0.4);
   background: rgba(217, 119, 87, 0.05);
 }

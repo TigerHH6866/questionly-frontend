@@ -30,6 +30,11 @@ export function getTaskResult(id) {
   return http.get(`/ocr/tasks/${id}/result`)
 }
 
+/** 修改文件名（仅改展示名，不影响 OSS 解析结果与已入库题目） */
+export function renameOcrTask(id, fileName) {
+  return http.put(`/ocr/tasks/${id}/name`, { fileName })
+}
+
 /**
  * 保存题干编辑草稿：整页编辑快照（JSON 字符串），后端原样存取。
  * 让编辑结果在刷新页面 / 换设备后仍能恢复，同时不写回解析结果与题库。

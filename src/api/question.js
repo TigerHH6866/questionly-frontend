@@ -11,13 +11,23 @@ export function analyzeQuestion(question, bizType = 'analyze') {
 }
 
 /**
- * 单题入库，写入 questions 表；grade / subject 由后端从分析报告中提取。
- * answers 为题目答案（AI 解题或人工录入），可为空；
+ * 单题入库，写入 questions 表；grade / subject / bloomType / difficulty 为面板里选定的值，
+ * 未传时后端按分析内容自动匹配。answers 为题目答案（AI 解题或人工录入），可为空；
  * ocrTaskId / ocrIndex 为来源（哪份文件的第几题），用于回显入库状态与防重复；
  * ocrTaskId 是 19 位雪花 ID，必须按字符串传，避免 JS 精度丢失。
  */
-export function saveQuestion(title, details, answers, ocrTaskId, ocrIndex) {
-  return http.post('/questions/save', { title, details, answers, ocrTaskId, ocrIndex })
+export function saveQuestion(title, details, answers, ocrTaskId, ocrIndex, meta) {
+  return http.post('/questions/save', {
+    title,
+    details,
+    answers,
+    ocrTaskId,
+    ocrIndex,
+    grade: meta?.grade,
+    subject: meta?.subject,
+    bloomType: meta?.bloomType,
+    difficulty: meta?.difficulty
+  })
 }
 
 /** 某份文件下已入库的题目（题号 + 题目 ID），进入文件时用于回显每道题的入库状态 */
@@ -25,9 +35,9 @@ export function getImportedQuestions(taskId) {
   return http.get('/questions/imported', { params: { taskId } })
 }
 
-/** 当前用户的题库列表（「我的题目」），每页 20 条，按入库时间倒序 */
-export function pageQuestions(pageNo = 1) {
-  return http.get('/questions', { params: { pageNo, pageSize: 20 } })
+/** 当前用户的题库列表（「我的题目」），默认每页 10 条，按入库时间倒序 */
+export function pageQuestions(pageNo = 1, pageSize = 10) {
+  return http.get('/questions', { params: { pageNo, pageSize } })
 }
 
 /** 按题目 ID 取题库详情，用于已入库题目展示「查看入库信息」 */
@@ -48,9 +58,19 @@ export function searchQuestions(params) {
   return http.get('/search', { params })
 }
 
-/** 修改题目的 AI 分析内容与 / 或答案；不传的参数保持不变 */
-export function updateQuestion(id, details, answers) {
-  return http.put(`/questions/${id}`, { details, answers })
+/**
+ * 修改题目的 AI 分析内容与 / 或答案与 / 或四维元信息；不传的参数保持不变。
+ * meta: { grade, subject, bloomType, difficulty }
+ */
+export function updateQuestion(id, details, answers, meta) {
+  return http.put(`/questions/${id}`, {
+    details,
+    answers,
+    grade: meta?.grade,
+    subject: meta?.subject,
+    bloomType: meta?.bloomType,
+    difficulty: meta?.difficulty
+  })
 }
 
 /** 删除题目 */

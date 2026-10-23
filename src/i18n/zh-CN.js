@@ -194,6 +194,10 @@ export default {
     loadFailed: '解析结果加载失败',
     retry: '重试',
     total: '共 {total} 题',
+    renameHint: '点击修改文件名',
+    renamePlaceholder: '输入文件名',
+    renameSaved: '文件名已更新',
+    renameEmpty: '文件名不能为空',
     questionLabel: '第 {n} 题',
     empty: '未识别到题目',
     analyze: 'AI 分析入库',
@@ -420,5 +424,11 @@ export default {
     saveEdit: '保存修改',
     saveEditEmpty: '分析内容不能为空',
     updated: '已保存修改'
+  },
+  questionMeta: {
+    stage: '学段',
+    subject: '学科',
+    bloom: '认知目标',
+    difficulty: '难度'
   }
 }

@@ -141,38 +141,9 @@
         </div>
       </div>
 
-      <aside v-if="panelId !== null" class="panel">
-        <div class="panel-head">
-          <div class="panel-heading">
-            <span class="panel-tag">{{ t('process.panelTitle') }}</span>
-            <span class="panel-hint">{{ t('process.panelHint') }}</span>
-          </div>
-          <button
-            class="panel-close"
-            type="button"
-            :title="t('process.close')"
-            :aria-label="t('process.close')"
-            @click="closePanel"
-          >
-            <svg viewBox="0 0 24 24" width="15" height="15" fill="none" aria-hidden="true">
-              <path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
-            </svg>
-          </button>
-        </div>
-        <div
-          ref="panelBodyRef"
-          class="panel-body"
-          contenteditable="true"
-          spellcheck="false"
-          @input="onPanelInput"
-        ></div>
-
-        <div class="panel-foot">
-          <button class="save-bank" type="button" :disabled="saving" @click="saveEdit">
-            <span v-if="saving" class="mini-spinner" aria-hidden="true"></span>
-            {{ saving ? t('process.saving') : t('search.saveEdit') }}
-          </button>
-        </div>
+      <!-- 分析详情：复用题库面板（AI 分析 / AI 解题 / 知识点），只读查看 -->
+      <aside v-if="panelId !== null && panelQuestion" class="panel-shell">
+        <QuestionBankPanel :key="panelQuestion.id" :question="panelQuestion" readonly @close="closePanel" />
       </aside>
     </div>
   </div>
@@ -182,11 +153,11 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { searchQuestions, updateQuestion, deleteQuestion } from '@/api/question'
+import { searchQuestions, deleteQuestion } from '@/api/question'
 import { recognizeAudio } from '@/api/asr'
-import { renderMarkdown, renderRichMarkdown } from '@/utils/markdown'
+import { renderRichMarkdown } from '@/utils/markdown'
 import { markdownToLatex } from '@/utils/document'
-import { toEditedMarkdown } from '@/utils/editedMarkdown'
+import QuestionBankPanel from '@/components/QuestionBankPanel.vue'
 import { isLoggedIn } from '@/utils/auth'
 import { VoiceRecorder } from '@/utils/recorder'
 
@@ -201,12 +172,6 @@ const searching = computed(() => turns.value.some((turn) => turn.loading))
 
 /** 右侧面板展示的题目 id，null 表示未展开 */
 const panelId = ref(null)
-const panelHtml = ref('')
-const panelBodyRef = ref(null)
-const saving = ref(false)
-
-/** 面板里就地编辑后的 HTML 缓存：题目 id -> HTML（未编辑过的题目不在其中） */
-const editCache = new Map()
 
 /** 当前面板对应的题目 */
 const panelQuestion = computed(() => {
@@ -223,6 +188,9 @@ function toRecord(raw) {
     id: String(raw.id),
     title: raw.title || '',
     details: raw.details || '',
+    subject: raw.subject || '',
+    grade: raw.grade || '',
+    createdAt: raw.created_at || raw.createdAt || '',
     html: renderRichMarkdown(raw.title || '')
   }
 }
@@ -235,7 +203,8 @@ function applyTurn(turn, data) {
   turn.pageSize = Number(data.pageSize) || 20
   turn.pages = Math.max(1, Number(data.pages) || 1)
   turn.hasNext = Boolean(data.hasNext)
-  turn.records = (data.records || []).map(toRecord)
+  // 接口按最新在前返回，这里倒序显示：最新的落在这一页最底部
+  turn.records = (data.records || []).map(toRecord).reverse()
   turn.loading = false
   turn.failed = false
 }
@@ -328,55 +297,10 @@ async function removeQuestion(turn, q) {
 
 function openAnalysis(q) {
   panelId.value = q.id
-  // 编辑过的题目用编辑缓存还原，未编辑过的直接渲染已有分析结果
-  panelHtml.value = editCache.has(q.id) ? editCache.get(q.id) : renderMarkdown(q.details)
-  nextTick(syncPanelBody)
-}
-
-/**
- * 面板正文手动写入 innerHTML，不挂 v-html 绑定。
- * 用户就在这个节点里编辑，而 v-html 会在父组件任意一次重渲染时重新赋值并清空改动。
- */
-function syncPanelBody() {
-  const el = panelBodyRef.value
-  if (el && panelId.value !== null) el.innerHTML = panelHtml.value
 }
 
 function closePanel() {
   panelId.value = null
-  panelHtml.value = ''
-}
-
-/** 面板里就地编辑：只写缓存、不回写 panelHtml，避免重渲染打断光标 */
-function onPanelInput() {
-  const el = panelBodyRef.value
-  if (!el || panelId.value === null) return
-  editCache.set(panelId.value, el.innerHTML)
-}
-
-/** 保存修改：把面板 HTML 转回 Markdown 后 update 回数据库 */
-async function saveEdit() {
-  const question = panelQuestion.value
-  if (!question || saving.value) return
-
-  const el = panelBodyRef.value
-  const details = el ? toEditedMarkdown(el.innerHTML) : ''
-  if (!details) {
-    ElMessage.warning(t('search.saveEditEmpty'))
-    return
-  }
-
-  saving.value = true
-  try {
-    await updateQuestion(question.id, details)
-    question.details = details
-    if (el) editCache.set(question.id, el.innerHTML)
-    ElMessage.success(t('search.updated'))
-  } catch {
-    // 失败提示由 http 拦截器统一弹出
-  } finally {
-    saving.value = false
-  }
 }
 
 /** 写入剪贴板：优先用异步 API，失败或不可用时降级 execCommand */
@@ -561,7 +485,7 @@ onBeforeUnmount(() => {
   /* 题头操作按钮高度，与题号标签同一行居中对齐 */
   --action-h: 27px;
   /* 悬浮分析面板宽度 */
-  --panel-w: 560px;
+  --panel-w: 768px;
   /* 题目区与面板之间的期望视觉间距 */
   --col-gap: 20px;
   /* 滚动条会占据容器右侧的宽度，需从让位宽度中扣除 */
@@ -904,9 +828,6 @@ onBeforeUnmount(() => {
 
 .q-body :deep(img) {
   max-width: 100%;
-  border-radius: var(--radius-sm);
-  border: 1px solid var(--c-border);
-  box-shadow: var(--shadow-xs);
 }
 
 .q-body :deep(.katex-display) {
@@ -1173,228 +1094,16 @@ onBeforeUnmount(() => {
 
 /* ---------- 右侧分析面板 ---------- */
 
-/* 悬浮在对话区右侧的分析面板：右侧留白与题目区左侧留白一致，整组居中 */
-.panel {
+/* 复用题库分析面板（AI 分析 / AI 解题 / 知识点），这里只负责定位；
+   面板自身的宽度、间距与文件解析页完全一致 */
+.panel-shell {
   position: absolute;
   top: 0;
   right: var(--side-pad);
   bottom: 0;
   width: var(--panel-w);
   display: flex;
-  flex-direction: column;
-  overflow: hidden;
-  padding: 20px 0 16px;
-  border: 1px solid var(--c-border);
-  border-radius: var(--radius-lg);
-  background: var(--c-surface);
-  box-shadow: var(--shadow-md), var(--inset-top);
-}
-
-.panel-head {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex: none;
-  padding: 0 24px 12px;
-  margin-bottom: 14px;
-  border-bottom: 1px solid var(--c-border);
-}
-
-/* 标签与提示语竖向排列，关闭按钮靠右 */
-.panel-heading {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 6px;
-}
-
-.panel-hint {
-  font-family: var(--font-body);
-  font-size: 12px;
-  line-height: 1.4;
-  color: var(--c-mid-gray);
-}
-
-.panel-tag {
-  padding: 3px 12px;
-  border-radius: 999px;
-  background: rgba(217, 119, 87, 0.12);
-  color: var(--c-orange);
-  font-family: var(--font-heading);
-  font-size: 12px;
-  font-weight: 600;
-  letter-spacing: 0.01em;
-  box-shadow: inset 0 0 0 1px rgba(217, 119, 87, 0.16);
-}
-
-/* 关闭按钮：收起分析面板，对话列恢复居中 */
-.panel-close {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 26px;
-  height: 26px;
-  margin-left: auto;
-  padding: 0;
-  border: 1px solid var(--c-border);
-  border-radius: 999px;
-  background: var(--c-surface);
-  color: var(--c-mid-gray);
-  cursor: pointer;
-  transition: border-color 0.2s var(--ease-soft), background 0.2s var(--ease-soft),
-    color 0.2s var(--ease-soft), box-shadow 0.2s var(--ease-soft);
-}
-
-.panel-close:hover {
-  border-color: rgba(217, 119, 87, 0.55);
-  background: rgba(217, 119, 87, 0.08);
-  color: var(--c-orange);
-  box-shadow: var(--shadow-xs);
-}
-
-/* 面板正文：可点击插入光标就地编辑，只滚动正文、头部与底部按钮常驻 */
-.panel-body {
-  flex: 1;
   min-height: 0;
-  overflow-y: auto;
-  padding: 0 24px;
-  border-radius: var(--radius-sm);
-  font-family: var(--font-body);
-  font-size: 14px;
-  line-height: 1.85;
-  word-break: break-word;
-}
-
-.panel-body:focus {
-  outline: none;
-  box-shadow: inset 0 0 0 1px rgba(217, 119, 87, 0.22);
-}
-
-/* 面板底部：保存修改入口 */
-.panel-foot {
-  flex: none;
-  display: flex;
-  justify-content: flex-end;
-  padding: 14px 24px 0;
-  margin-top: 12px;
-  border-top: 1px solid var(--c-border);
-}
-
-.save-bank {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  height: 32px;
-  padding: 0 18px;
-  border: 1px solid var(--c-orange);
-  border-radius: 999px;
-  background: var(--c-orange);
-  color: var(--c-on-accent);
-  font-family: var(--font-heading);
-  font-size: 13px;
-  font-weight: 500;
-  cursor: pointer;
-  box-shadow: 0 1px 2px rgba(217, 119, 87, 0.28);
-  transition: background 0.2s var(--ease-soft), border-color 0.2s var(--ease-soft),
-    box-shadow 0.2s var(--ease-soft), transform 0.2s var(--ease-out);
-}
-
-.save-bank:hover:not(:disabled) {
-  border-color: var(--c-orange-hover);
-  background: var(--c-orange-hover);
-  transform: translateY(-1px);
-  box-shadow: 0 1px 3px rgba(217, 119, 87, 0.3), 0 8px 16px -9px rgba(217, 119, 87, 0.7);
-}
-
-.save-bank:active:not(:disabled) {
-  transform: translateY(0);
-  box-shadow: 0 1px 2px rgba(217, 119, 87, 0.28);
-}
-
-.save-bank:disabled {
-  border-color: var(--c-border);
-  background: var(--c-light-gray);
-  color: var(--c-mid-gray);
-  box-shadow: none;
-  cursor: not-allowed;
-}
-
-.panel-body :deep(h1),
-.panel-body :deep(h2),
-.panel-body :deep(h3),
-.panel-body :deep(h4) {
-  margin: 18px 0 8px;
-  font-family: var(--font-heading);
-  font-size: 14px;
-  font-weight: 600;
-}
-
-.panel-body :deep(h1:first-child),
-.panel-body :deep(h2:first-child),
-.panel-body :deep(h3:first-child) {
-  margin-top: 0;
-}
-
-.panel-body :deep(p) {
-  margin: 0 0 10px;
-}
-
-.panel-body :deep(ul),
-.panel-body :deep(ol) {
-  margin: 0 0 10px;
-  padding-left: 20px;
-}
-
-.panel-body :deep(li) {
-  margin-bottom: 4px;
-}
-
-.panel-body :deep(table) {
-  width: 100%;
-  margin: 12px 0;
-  border-collapse: collapse;
-  font-size: 13px;
-}
-
-.panel-body :deep(th),
-.panel-body :deep(td) {
-  padding: 7px 10px;
-  border: 1px solid var(--c-border);
-  text-align: left;
-}
-
-.panel-body :deep(th) {
-  background: var(--c-subtle);
-  font-family: var(--font-heading);
-  font-weight: 600;
-}
-
-.panel-body :deep(code) {
-  padding: 1px 5px;
-  border-radius: 4px;
-  background: var(--c-light-gray);
-  font-size: 13px;
-}
-
-.panel-body :deep(pre) {
-  margin: 12px 0;
-  padding: 12px 14px;
-  border-radius: var(--radius-sm);
-  background: var(--c-subtle);
-  overflow-x: auto;
-}
-
-.panel-body :deep(blockquote) {
-  margin: 12px 0;
-  padding-left: 12px;
-  border-left: 3px solid var(--c-light-gray);
-  color: var(--c-mid-gray);
-}
-
-.panel-body :deep(.katex-display) {
-  margin: 12px 0;
-  overflow-x: auto;
-  overflow-y: hidden;
 }
 
 @keyframes spin {
@@ -1421,8 +1130,9 @@ onBeforeUnmount(() => {
     --panel-gutter: 0px;
   }
 
-  .panel {
+  .panel-shell {
     position: static;
+    display: block;
     width: 100%;
     max-height: 60vh;
   }
