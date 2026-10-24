@@ -1,10 +1,16 @@
 import http from './http'
 
-/** 分析单道试题，返回 Markdown 分析报告；bizType 用于后端定位 agent 表中的 LLM 配置 */
-export function analyzeQuestion(question, bizType = 'analyze') {
+/**
+ * 分析单道试题，返回 Markdown 分析报告；bizType 用于后端定位 agent 表中的 LLM 配置。
+ * image 为可选题目截图（前端合成，后端转 base64 内联给模型，不落存储）
+ */
+export function analyzeQuestion(question, bizType = 'analyze', image = null) {
   const form = new FormData()
   form.append('question', question)
   form.append('bizType', bizType)
+  if (image) {
+    form.append('image', image, image.name || 'question.jpg')
+  }
   return http.post('/questions/analyze', form, {
     headers: { 'Content-Type': 'multipart/form-data' }
   })
@@ -13,6 +19,7 @@ export function analyzeQuestion(question, bizType = 'analyze') {
 /**
  * 单题入库，写入 questions 表；grade / subject / bloomType / difficulty 为面板里选定的值，
  * 未传时后端按分析内容自动匹配。answers 为题目答案（AI 解题或人工录入），可为空；
+ * knowledgeIds 为关联知识点 ID（顺序即勾选顺序），随题目一起落库；
  * ocrTaskId / ocrIndex 为来源（哪份文件的第几题），用于回显入库状态与防重复；
  * ocrTaskId 是 19 位雪花 ID，必须按字符串传，避免 JS 精度丢失。
  */
@@ -26,7 +33,8 @@ export function saveQuestion(title, details, answers, ocrTaskId, ocrIndex, meta)
     grade: meta?.grade,
     subject: meta?.subject,
     bloomType: meta?.bloomType,
-    difficulty: meta?.difficulty
+    difficulty: meta?.difficulty,
+    knowledgeIds: meta?.knowledgeIds
   })
 }
 
@@ -38,6 +46,14 @@ export function getImportedQuestions(taskId) {
 /** 当前用户的题库列表（「我的题目」），默认每页 10 条，按入库时间倒序 */
 export function pageQuestions(pageNo = 1, pageSize = 10) {
   return http.get('/questions', { params: { pageNo, pageSize } })
+}
+
+/**
+ * 按认知目标 / 难度筛选题库，两个条件都可只传其一（都不传等价于全部），
+ * 每页 20 条，按入库时间倒序
+ */
+export function filterQuestions({ bloomType, difficulty, pageNo = 1, pageSize = 20 } = {}) {
+  return http.get('/questions/filter', { params: { bloomType, difficulty, pageNo, pageSize } })
 }
 
 /** 按题目 ID 取题库详情，用于已入库题目展示「查看入库信息」 */
@@ -59,8 +75,8 @@ export function searchQuestions(params) {
 }
 
 /**
- * 修改题目的 AI 分析内容与 / 或答案与 / 或四维元信息；不传的参数保持不变。
- * meta: { grade, subject, bloomType, difficulty }
+ * 修改题目的 AI 分析内容与 / 或答案与 / 或四维元信息与 / 或知识点；不传的参数保持不变。
+ * meta: { grade, subject, bloomType, difficulty, knowledgeIds }
  */
 export function updateQuestion(id, details, answers, meta) {
   return http.put(`/questions/${id}`, {
@@ -69,7 +85,8 @@ export function updateQuestion(id, details, answers, meta) {
     grade: meta?.grade,
     subject: meta?.subject,
     bloomType: meta?.bloomType,
-    difficulty: meta?.difficulty
+    difficulty: meta?.difficulty,
+    knowledgeIds: meta?.knowledgeIds
   })
 }
 
@@ -81,11 +98,6 @@ export function deleteQuestion(id) {
 /** 获取题目绑定的知识点 */
 export function getQuestionKnowledge(id) {
   return http.get(`/questions/${id}/knowledge`)
-}
-
-/** 保存题目知识点绑定（全量覆盖，一题可多选） */
-export function saveQuestionKnowledge(id, nodes) {
-  return http.put(`/questions/${id}/knowledge`, { nodes })
 }
 
 /** 知识点目录的学段/学科分布 */

@@ -14,6 +14,60 @@ const MAIN_START_RES = [
 /** 括号题号：(1) / （1）—— 通常是大题下的小题，不另起一题 */
 const SUB_START_RE = /^\s*[（(]\s*\d{1,3}\s*[）)]/
 
+/** 独立的选项字母块：A. / B． / C) / D、 */
+const OPTION_LABEL_RE = /^[（(]?[A-Fa-fＡ-Ｆ][）).．、]?$/
+
+/** 同一行的纵向容差：块顶边相差小于该值视为并排，按左边界排先后 */
+const ROW_TOLERANCE = 16
+
+/** 该块是否是紧跟在图片下方的选项字母（A/B/C/D），排序时要和图片绑在一起 */
+function isImagePairLabel(block) {
+  if (!block || block.type !== 'paragraph') return false
+  const spans = block.content?.paragraph_content
+  const text = Array.isArray(spans)
+    ? spans.map((span) => span?.content ?? '').join('')
+    : block.text || ''
+  return OPTION_LABEL_RE.test(text.trim())
+}
+
+/**
+ * 还原一页内块的真实阅读顺序。
+ * MinerU 偶尔会把整页共用的插图放到页首（bbox 却在中部），直接按数组顺序切分会把它划给上一题；
+ * 这里按 bbox 纵坐标聚行、行内按横坐标排序。图片与紧随其后的 A/B/C/D 字母视为一组不可拆，
+ * 避免并排的选项图与字母被打散。任一块缺少 bbox 时保持原顺序，不做重排。
+ */
+function orderPageBlocks(blocks) {
+  const groups = []
+  for (let i = 0; i < blocks.length; i += 1) {
+    const block = blocks[i]
+    if (block.type === 'image' && isImagePairLabel(blocks[i + 1])) {
+      groups.push([block, blocks[i + 1]])
+      i += 1
+    } else {
+      groups.push([block])
+    }
+  }
+  if (groups.some((group) => !Array.isArray(group[0].bbox))) return blocks
+
+  const topOf = (group) => group[0].bbox[1]
+  const rows = []
+  ;[...groups]
+    .sort((a, b) => topOf(a) - topOf(b))
+    .forEach((group) => {
+      const last = rows[rows.length - 1]
+      if (last && topOf(group) - last.top <= ROW_TOLERANCE) last.items.push(group)
+      else rows.push({ top: topOf(group), items: [group] })
+    })
+
+  const ordered = []
+  rows.forEach((row) => {
+    row.items
+      .sort((a, b) => a[0].bbox[0] - b[0].bbox[0])
+      .forEach((group) => ordered.push(...group))
+  })
+  return ordered
+}
+
 /**
  * 取块内的 span 列表。
  * content_list_v2 的块形如 { type, content: { <type>_content: [span...] }, bbox }
@@ -120,9 +174,12 @@ function imagePathOf(block) {
   return typeof path === 'string' ? path : ''
 }
 
-/** 图片自带的说明（MinerU 把图下 A/B/C/D 放在 image_caption 里），按 span 拆开保留 */
+/**
+ * 图片自带的说明（MinerU 把图下 A/B/C/D、甲乙丙放在 image_caption 里），按 span 拆开保留。
+ * chart（统计图/示意图）的说明放在 chart_caption，同样要取，否则图下的「乙」这类标签会丢。
+ */
 function imageCaptionsOf(block) {
-  const spans = block.content?.image_caption
+  const spans = block.content?.image_caption ?? block.content?.chart_caption
   if (!Array.isArray(spans)) return []
   return spans
     .map((span) => (span?.type === 'equation_inline' ? `$${span.content ?? ''}$` : span?.content ?? ''))
@@ -131,7 +188,7 @@ function imageCaptionsOf(block) {
 }
 
 function imageCaptionOf(block) {
-  return imageCaptionsOf(block).join('')
+  return imageCaptionsOf(block).join('　')
 }
 
 /** 单块标准化，字段名以真实 MinerU 输出为准 */
@@ -165,9 +222,10 @@ export function toBlocks(contentListV2) {
   const blocks = []
   pages.forEach((page, pageIdx) => {
     if (!Array.isArray(page)) return
-    page.forEach((block) => {
-      if (!block || typeof block !== 'object' || !block.type) return
-      if (NOISE_TYPES.has(block.type)) return
+    const cleaned = page.filter(
+      (block) => block && typeof block === 'object' && block.type && !NOISE_TYPES.has(block.type)
+    )
+    orderPageBlocks(cleaned).forEach((block) => {
       blocks.push({ ...normalize(block), pageIdx, bbox: block.bbox })
     })
   })
@@ -226,13 +284,50 @@ export function splitQuestions(blocks) {
   }
 }
 
+/**
+ * 补全表格 HTML 里的相对图片路径。
+ * MinerU 的表格 html 直接带 <img src="images/xxx.jpg">，相对路径在页面上会 404，
+ * 需要拼上 OSS 的 imagesBase 才能显示；已是绝对地址或 data URI 的保持原样。
+ */
+export function absolutizeImages(html, imagesBase) {
+  if (!html) return ''
+  const base = imagesBase || ''
+  return html.replace(/(<img\b[^>]*?\bsrc\s*=\s*)(["'])([^"']*)\2/gi, (match, pre, quote, src) => {
+    if (!src || /^(?:https?:|data:|\/\/|\/)/i.test(src)) return match
+    return `${pre}${quote}${base}${src.replace(/^\.?\//, '')}${quote}`
+  })
+}
+
+/**
+ * 表格 HTML 里的行内公式还原：MinerU 在单元格里直接写 $...$（或 $$...$$）LaTeX 源码，
+ * 表格是原样插入 DOM 的，不处理就会把源码当成文字显示。
+ * 只处理标签之间的文本节点，避免公式定界符跨单元格配对时把 HTML 标签吞进公式。
+ */
+function renderCellMath(html) {
+  return String(html || '')
+    .split(/(<[^>]*>)/)
+    .map((segment) => {
+      if (segment.startsWith('<')) return segment
+      return segment
+        .replace(/\$\$([\s\S]+?)\$\$/g, (_, latex) =>
+          katex.renderToString(latex.trim(), { displayMode: true, throwOnError: false })
+        )
+        .replace(/\$([^$\n]+?)\$/g, (_, latex) =>
+          katex.renderToString(latex.trim(), { displayMode: false, throwOnError: false })
+        )
+    })
+    .join('')
+}
+
 /** 渲染单个块为 HTML 片段 */
 export function renderBlock(block, imagesBase) {
   switch (block.type) {
     case 'title':
       return block.text ? `<h3 class="blk-title">${renderInline(block.text)}</h3>` : ''
     case 'table':
-      return block.html ? `<div class="blk-table">${block.html}</div>` : ''
+      return block.html
+        ? `<div class="blk-table">${renderCellMath(absolutizeImages(block.html, imagesBase))}</div>`
+        : ''
     case 'equation_interline':
       return block.latex
         ? `<div class="blk-equation">${katex.renderToString(block.latex, {
@@ -240,10 +335,25 @@ export function renderBlock(block, imagesBase) {
             throwOnError: false
           })}</div>`
         : ''
-    case 'image':
-      return block.imgPath
-        ? `<figure class="blk-image"><img src="${imagesBase}${block.imgPath}" alt="" loading="lazy"></figure>`
+    case 'image': {
+      if (!block.imgPath) return ''
+      const src = `${imagesBase}${block.imgPath}`
+      const caps = block.captions?.length ? block.captions : block.caption ? [block.caption] : []
+      // 单张图带多个短标签（甲乙丙被识成一整条图）：标签按原图位置均分到图下方
+      if (caps.length > 1 && caps.every((cap) => cap.length <= 6)) {
+        const labels = caps.map((cap) => `<span>${renderInline(cap)}</span>`).join('')
+        return (
+          `<figure class="blk-image blk-image-multi">` +
+          `<img src="${src}" alt="" loading="lazy">` +
+          `<figcaption class="blk-image-labels">${labels}</figcaption>` +
+          `</figure>`
+        )
+      }
+      const caption = caps.length
+        ? `<figcaption class="blk-image-caption">${renderInline(caps.join('　'))}</figcaption>`
         : ''
+      return `<figure class="blk-image"><img src="${src}" alt="" loading="lazy">${caption}</figure>`
+    }
     default: {
       if (!block.text) return ''
       // 短选项组用 flex 容器渲染：每行选项两端顶格，间距随行宽自适应
@@ -258,9 +368,6 @@ export function renderBlock(block, imagesBase) {
     }
   }
 }
-
-/** 独立的选项字母块：A. / B． / C) / D、 */
-const OPTION_LABEL_RE = /^[（(]?[A-Fa-fＡ-Ｆ][）).．、]?$/
 
 /** 图片下方标识按 A-F 顺序排列 */
 const LETTERS = ['A', 'B', 'C', 'D', 'E', 'F']
@@ -321,7 +428,9 @@ function renderLabeledCells(cells, imagesBase) {
       const text = caption
         ? renderBlock({ type: 'paragraph', text: caption }, imagesBase)
         : ''
-      return `<div class="blk-labeled-cell">${renderBlock(image, imagesBase)}${text}</div>`
+      // 图上自带的说明已改由下方文字呈现，避免同一标签渲染两次（甲 甲）
+      const bare = { ...image, caption: '', captions: [] }
+      return `<div class="blk-labeled-cell">${renderBlock(bare, imagesBase)}${text}</div>`
     })
     .join('')
   return `<div class="blk-labeled" data-cols="${cols}">${html}</div>`
@@ -569,7 +678,14 @@ export function renderQuestion(blocks, imagesBase) {
 
     if (block.type === 'image') {
       const { cells, next } = readImageCells(i)
-      if (cells.length >= 1 && cells.some((cell) => cell.caption)) {
+      // 整条图（多张子图被识成一张宽图）自带多个短标签：交给 renderBlock 均分到图下方，
+      // 不要当成「一张图 + 一段说明」渲染成一串文字
+      const stripLabels =
+        cells.length === 1 &&
+        next === i + 1 &&
+        (block.captions?.length ?? 0) > 1 &&
+        block.captions.every((cap) => cap.length <= 6)
+      if (!stripLabels && cells.length >= 1 && cells.some((cell) => cell.caption)) {
         flushImages()
         parts.push(renderLabeledCells(cells, imagesBase))
         i = next - 1
@@ -688,7 +804,7 @@ export function questionMarkdown(blocks, imagesBase = '') {
   ;(blocks || []).forEach((block) => {
     switch (block.type) {
       case 'table':
-        if (block.html) parts.push(block.html)
+        if (block.html) parts.push(absolutizeImages(block.html, imagesBase))
         break
       case 'equation_interline':
         if (block.latex) parts.push(`$$\n${block.latex}\n$$`)

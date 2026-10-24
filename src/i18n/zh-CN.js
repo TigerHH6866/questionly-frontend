@@ -137,7 +137,10 @@ export default {
       empty: '题库里还没有题目，先在「导入新文件」里分析入库',
       needLogin: '登录后可查看自己的题目',
       detail: '查看详情',
-      stem: '题干'
+      stem: '题干',
+      all: '全部',
+      filter: '筛选',
+      noMatch: '没有符合筛选条件的题目'
     }
   },
   tasks: {
@@ -161,7 +164,7 @@ export default {
     subtitle: '上传文档或图片，Ai自动识别题目并分析入库',
     drop: {
       title: '点击选择文件，或将文件拖拽到此处',
-      hint: '支持图片 / PDF  / Word / PPT，最大100MB 100页, 也可直接Ctrl+V / ⌘+V 粘贴截图或文件'
+      hint: '图片 ≤10MB；PDF / Word ≤20MB、50页，也可直接 Ctrl+V / ⌘+V 粘贴截图或文件'
     },
     start: '开始识别处理',
     waiting: '正在识别处理文档…',
@@ -172,7 +175,9 @@ export default {
     remove: '删除文件',
     error: {
       type: '仅支持 png / jpg / jpeg / doc / docx / pdf 格式的文件',
-      size: '文件大小不能超过 100MB'
+      imageSize: '图片大小不能超过 10MB',
+      docSize: '文件大小不能超过 20MB',
+      pages: '文件页数不能超过 50 页'
     },
     cards: {
       recognize: {
@@ -210,6 +215,7 @@ export default {
     tabAnswer: '答案分析',
     aiSolve: 'AI解题',
     answerSolving: '解题中…',
+    answerNotice: 'AI 解题受图片识别或模型能力影响，仅供参考',
     updateBank: '更新题库',
     updated: '已更新',
     close: '关闭',
@@ -293,7 +299,11 @@ export default {
       exported: 'PDF 已开始下载',
       exportedWord: 'Word 已开始下载',
       exportEmpty: '试卷还是空的，先插入题目再导出',
-      exportFailed: '文件生成失败，请稍后重试'
+      exportFailed: '文件生成失败，请稍后重试',
+      leaveTitle: '离开组卷页面',
+      leaveConfirm: '这份试卷还没有保存，是否保存后离开？',
+      saveAndLeave: '保存并离开',
+      stayEditing: '继续编辑'
     }
   },
   auth: {
@@ -394,12 +404,9 @@ export default {
     noResult: '没有匹配的知识点',
     selected: '已选 {count} 个',
     empty: '尚未关联知识点',
-    setPrimary: '设为主知识点',
     clear: '清空',
     cancel: '取消',
-    save: '保存',
-    saving: '保存中…',
-    saved: '知识点已保存'
+    save: '保存'
   },
   search: {
     placeholder: '用自然语言描述你要找的题目，如「找一下瓜豆原理的题目」',

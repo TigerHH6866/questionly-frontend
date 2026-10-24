@@ -177,10 +177,10 @@ import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { createOcrTask, getOcrTask } from '@/api/ocr'
 import { isLoggedIn } from '@/utils/auth'
+import { checkUpload } from '@/utils/uploadLimits'
 
 const ACCEPT = '.png,.jpg,.jpeg,.doc,.docx,.pdf'
 const ALLOWED = ['png', 'jpg', 'jpeg', 'doc', 'docx', 'pdf']
-const MAX_SIZE = 100 * 1024 * 1024
 
 /** 轮询：每 10s 一次，最多 20 次 */
 const POLL_INTERVAL = 10000
@@ -252,7 +252,11 @@ function onPaste(event) {
   if (next) accept(next)
 }
 
-function accept(next) {
+/** 连续选文件时只认最后一次的选择，避免慢的页数校验覆盖后选的文件 */
+let acceptSeq = 0
+
+async function accept(next) {
+  const seq = ++acceptSeq
   error.value = ''
   picked.value = null
   file.value = null
@@ -262,8 +266,10 @@ function accept(next) {
     error.value = t('import.error.type')
     return
   }
-  if (next.size > MAX_SIZE) {
-    error.value = t('import.error.size')
+  const failKey = await checkUpload(next, ext)
+  if (seq !== acceptSeq) return
+  if (failKey) {
+    error.value = t(failKey)
     return
   }
   const kind = kindOf(ext)

@@ -101,6 +101,7 @@
 
     <!-- 答案：默认给 AI 解题入口，生成后转为可编辑正文 -->
     <template v-if="tab === 'answer'">
+      <p class="qb-answer-notice">{{ t('process.answerNotice') }}</p>
       <div v-if="solving" class="qb-empty">
         <span class="spinner" aria-hidden="true"></span>
         {{ t('process.answerSolving') }}
@@ -132,7 +133,6 @@
             v-for="item in knowledgeItems"
             :key="item.knowledgeId"
             class="qb-kp-chip"
-            :class="{ 'is-primary': item.role === 1 }"
           >
             <span class="qb-kp-name">{{ item.name }}</span>
             <span class="qb-kp-meta">{{ item.stage }} · {{ item.subject }}</span>
@@ -172,11 +172,11 @@ import {
   getQuestionAnswer,
   getQuestionDetail,
   getQuestionKnowledge,
-  saveQuestionKnowledge,
   updateQuestion
 } from '@/api/question'
 import KnowledgePicker from '@/components/KnowledgePicker.vue'
 import { renderMarkdown } from '@/utils/markdown'
+import { hasQuestionImage, snapshotQuestion } from '@/utils/questionSnapshot'
 import {
   BLOOM_TYPES,
   DIFFICULTIES,
@@ -319,7 +319,18 @@ async function generateAnswer() {
   if (solving.value) return
   solving.value = true
   try {
-    const markdown = await analyzeQuestion(props.question.title || '', 'answer')
+    const stem = props.question.title || ''
+    // 带图题目：先把完整题干（含选项图）合成一张截图交给视觉模型；纯文字题仍只传文本
+    let image = null
+    if (hasQuestionImage(stem)) {
+      try {
+        image = await snapshotQuestion(stem)
+      } catch {
+        // 合成失败退回纯文本，不发残缺图片
+        image = null
+      }
+    }
+    const markdown = await analyzeQuestion(stem, 'answer', image)
     answerHtml = renderMarkdown(markdown || '')
     hasAnswer.value = Boolean(markdown)
     // 只读面板没有保存按钮，生成结果直接落库，避免下次打开又要重新解题
@@ -340,13 +351,10 @@ async function generateAnswer() {
 /** 内嵌选择器的勾选先暂存，随底部保存一起提交 */
 function onKnowledgeSelected(items) {
   knowledgeTouched = true
-  knowledgeNodes = (items || []).map((item) => ({
-    knowledgeId: item.knowledgeId,
-    role: item.role
-  }))
+  knowledgeNodes = (items || []).map((item) => Number(item.knowledgeId))
 }
 
-/** 保存：分析正文、答案（打开过且非空时）与知识点绑定 */
+/** 保存：分析正文、答案与知识点随题目一起提交 */
 async function save() {
   if (busy.value) return
   const details = analysisRef.value ? toEditedMarkdown(analysisRef.value.innerHTML) : ''
@@ -366,12 +374,10 @@ async function save() {
       grade: metaStage.value,
       subject: metaSubject.value,
       bloomType: metaBloom.value,
-      difficulty: metaDifficulty.value
+      difficulty: metaDifficulty.value,
+      knowledgeIds: knowledgeTouched ? knowledgeNodes : undefined
     })
-    if (knowledgeTouched) {
-      await saveQuestionKnowledge(props.question.id, knowledgeNodes)
-      knowledgeTouched = false
-    }
+    knowledgeTouched = false
     ElMessage.success(t('search.updated'))
     emit('updated')
   } catch {
@@ -555,6 +561,19 @@ onMounted(loadAnalysis)
   font-variant-numeric: tabular-nums;
 }
 
+/* 答案正文顶部的免责提示：随标签页常驻，不进入可编辑正文，避免被保存进答案 */
+.qb-answer-notice {
+  flex: none;
+  margin: 10px 24px 0;
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: var(--c-subtle);
+  color: var(--c-mid-gray);
+  font-family: var(--font-body);
+  font-size: 12.5px;
+  line-height: 1.6;
+}
+
 /* 正文：可点击就地编辑，只滚动正文，头部与底部按钮常驻 */
 .qb-body {
   flex: 1;
@@ -621,14 +640,6 @@ onMounted(loadAnalysis)
   border: 1px solid var(--c-border);
   border-radius: 12px;
   background: var(--c-surface);
-}
-
-.qb-kp-chip.is-primary {
-  border-color: rgba(217, 119, 87, 0.45);
-  background: rgba(217, 119, 87, 0.06);
-}
-
-.qb-kp-name {
   font-family: var(--font-heading);
   font-size: 12.5px;
   letter-spacing: 0.02em;

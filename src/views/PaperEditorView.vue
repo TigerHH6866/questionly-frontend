@@ -38,7 +38,19 @@
             :class="{ 'is-active': panelHit && panelHit.id === hit.id }"
             @click="openPanel(hit)"
           >
-            <!-- 来源文件：卡片顶部一行，超长省略 -->
+            <!-- 元信息：学段 / 学科 / 认知目标 / 难度（空值自动跳过），来源文件名单独占第二行 -->
+            <p
+              v-if="hit.grade || hit.subject || hit.bloomType || hit.difficulty"
+              class="hit-meta"
+            >
+              <template
+                v-for="(item, i) in [hit.grade, hit.subject, hit.bloomType, hit.difficulty].filter(Boolean)"
+                :key="item"
+              >
+                <span v-if="i > 0" class="hit-meta-sep">/</span>
+                <span>{{ item }}</span>
+              </template>
+            </p>
             <p v-if="hit.sourceName" class="hit-source" :title="hit.sourceName">
               <svg viewBox="0 0 24 24" width="12" height="12" fill="none" aria-hidden="true">
                 <path
@@ -49,7 +61,7 @@
                 />
                 <path d="M13.8 3.7V7.7h4" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" />
               </svg>
-              <span>{{ hit.sourceName }}</span>
+              <span>{{ clipSourceName(hit.sourceName) }}</span>
             </p>
             <div class="hit-text" v-html="hit.html"></div>
             <button type="button" class="hit-add" @mousedown="keepFocus" @click.stop="insert(hit)">
@@ -311,14 +323,15 @@
 
 <script setup>
 import { computed, inject, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { onBeforeRouteLeave, useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { createPaper, exportPaperDocx, exportPaperPdf, getPaper, updatePaper } from '@/api/paper'
 import { searchQuestions } from '@/api/question'
 import QuestionBankPanel from '@/components/QuestionBankPanel.vue'
 import { recognizeAudio } from '@/api/asr'
 import { renderRichMarkdown } from '@/utils/markdown'
+import { clipSourceName } from '@/utils/questionMeta'
 import { isLoggedIn } from '@/utils/auth'
 import { VoiceRecorder } from '@/utils/recorder'
 
@@ -598,10 +611,85 @@ async function persist({ silent = false, fallbackTitle = false } = {}) {
 
 async function save() {
   const result = await persist()
-  if (result?.created) {
+  if (!result) return
+  dirty = false
+  if (result.created) {
     // 换成带 ID 的地址：组件按 path 重建，重新加载一次即为服务端保存后的内容
     router.replace(`/app/compose/${result.id}`)
   }
+}
+
+/* ---------- 自动保存与离开保护 ---------- */
+
+/** 初次载入并完成分页后才允许标记「有改动」，避免加载过程被误判 */
+const ready = ref(false)
+/** 是否有尚未落库的改动；已有试卷由防抖自动保存清掉，新建试卷等手动保存或离开时确认 */
+let dirty = false
+/** 改动版本号：自动保存期间又发生编辑时，不把新的改动误判成已保存 */
+let editVersion = 0
+let autoSaveTimer = null
+const AUTO_SAVE_DELAY = 1500
+
+/** 正文、标题的任何改动都走这里：打脏标记，已有试卷延迟自动落库 */
+function markDirty() {
+  if (!ready.value) return
+  dirty = true
+  editVersion += 1
+  // 新建试卷还没有 ID，自动保存会边打字边改地址，交给离开时确认保存
+  if (isNew.value) return
+  clearTimeout(autoSaveTimer)
+  autoSaveTimer = setTimeout(runAutoSave, AUTO_SAVE_DELAY)
+}
+
+async function runAutoSave() {
+  autoSaveTimer = null
+  if (!dirty || saving.value || exporting.value || isNew.value) return
+  const version = editVersion
+  const result = await persist({ silent: true })
+  // 只有保存成功且期间没有新的编辑，才算把改动保存干净
+  if (result && version === editVersion) dirty = false
+}
+
+/** 立即把待保存的改动落库（离开页面、返回时用），失败不阻塞离开 */
+async function flushPendingSave() {
+  clearTimeout(autoSaveTimer)
+  autoSaveTimer = null
+  return persist({ silent: true, fallbackTitle: true })
+}
+
+// 新建试卷时标题也算改动；载入阶段（ready 之前）由 load 写入，不触发
+watch(title, markDirty)
+
+/** 路由内跳转（侧栏切页等）：已有试卷先静默保存，新建试卷询问是否保存 */
+onBeforeRouteLeave(async () => {
+  if (!dirty) return true
+  if (!requireLogin()) return true
+  if (isNew.value) {
+    try {
+      await ElMessageBox.confirm(
+        t('compose.options.leaveConfirm'),
+        t('compose.options.leaveTitle'),
+        {
+          confirmButtonText: t('compose.options.saveAndLeave'),
+          cancelButtonText: t('compose.options.stayEditing'),
+          type: 'warning'
+        }
+      )
+    } catch {
+      return false
+    }
+    const result = await flushPendingSave()
+    return Boolean(result)
+  }
+  await flushPendingSave()
+  return true
+})
+
+/** 关闭标签页 / 刷新：有未保存内容时让浏览器弹原生确认框 */
+function onBeforeUnload(event) {
+  if (!dirty) return
+  event.preventDefault()
+  event.returnValue = ''
 }
 
 /**
@@ -617,6 +705,7 @@ async function exportFile(kind) {
   }
   const result = await persist({ silent: true, fallbackTitle: true })
   if (!result) return
+  dirty = false
   if (result.created) {
     // 新建试卷第一次导出会先落库：换成带 ID 的地址，避免再次导出重复创建
     router.replace(`/app/compose/${result.id}`)
@@ -660,7 +749,7 @@ async function exportFile(kind) {
     从「我的试卷」进来的回到我的试卷标签；从「沉浸式组卷」进来的回到试卷列表 */
 async function back() {
   if (recording.value) await finishRecording(true)
-  await persist({ silent: true, fallbackTitle: true })
+  if (await flushPendingSave()) dirty = false
   if (route.query.from === 'resources') router.push('/app/resources?tab=papers')
   else router.push('/app/compose')
 }
@@ -672,6 +761,10 @@ function toHit(raw) {
     id: String(raw.id),
     title: raw.title || '',
     html: renderRichMarkdown(raw.title || ''),
+    grade: raw.grade || '',
+    subject: raw.subject || '',
+    bloomType: raw.bloomType || '',
+    difficulty: raw.difficulty || '',
     sourceName: raw.sourceName || ''
   }
 }
@@ -796,6 +889,7 @@ function insert(hit) {
   sheet.focus()
   caretInEmptyLine(ensureLineAfter(block))
   watchImages(block)
+  markDirty()
   // 新题目可能把这一页顶爆，稍后按页重排；图片加载完还会各自再排一次
   schedulePaginate(120)
 }
@@ -1157,7 +1251,9 @@ function onResizeMove(event) {
 function onResizeUp() {
   document.removeEventListener('mousemove', onResizeMove)
   document.removeEventListener('mouseup', onResizeUp)
+  const changed = Boolean(resizing)
   resizing = null
+  if (changed) markDirty()
   // 图片高度变了，这一页可能装不下
   schedulePaginate()
 }
@@ -1206,6 +1302,7 @@ function onDragUp(event) {
   sel.removeAllRanges()
   sel.addRange(after)
   syncImageFrame()
+  markDirty()
   schedulePaginate()
 }
 
@@ -1987,6 +2084,7 @@ function schedulePaginate(delay = 220) {
 /** 输入内容变化后重排；中文输入法组合期间不能动 DOM，交给 compositionend 收尾 */
 function onSheetInput(event) {
   if (event.isComposing) return
+  markDirty()
   // 打字贴到页底时正文先溢出、被裁掉，重排越快越快看到续排结果
   schedulePaginate(90)
 }
@@ -2032,6 +2130,7 @@ onMounted(async () => {
   window.addEventListener('keydown', onSpaceDown)
   window.addEventListener('keyup', onSpaceUp)
   window.addEventListener('resize', syncImageFrame)
+  window.addEventListener('beforeunload', onBeforeUnload)
   document.addEventListener('selectionchange', onSelectionChange)
   await load()
   // 等纸张尺寸落到 DOM 上再建页并分页，否则量出来的页容量是错的
@@ -2040,6 +2139,8 @@ onMounted(async () => {
   // 老试卷里可能带还没加载完的图，同样要等图出尺寸后再定版
   watchImages(sheetRef.value)
   paginate()
+  // 首屏渲染完成后才开始记录改动，避免载入过程触发自动保存
+  ready.value = true
 })
 
 onBeforeUnmount(() => {
@@ -2048,11 +2149,13 @@ onBeforeUnmount(() => {
   window.removeEventListener('keydown', onSpaceDown)
   window.removeEventListener('keyup', onSpaceUp)
   window.removeEventListener('resize', syncImageFrame)
+  window.removeEventListener('beforeunload', onBeforeUnload)
   document.removeEventListener('selectionchange', onSelectionChange)
   clearPick()
   stopPointer()
   clearTimeout(paginateTimer)
   clearTimeout(spaceTimer)
+  clearTimeout(autoSaveTimer)
   clearInterval(recTimer)
   recorder?.stop(true)
 })
@@ -2116,7 +2219,11 @@ html.dark .editor {
   position: relative;
   display: flex;
   flex-direction: column;
+  /* 固定宽度：结果卡片里的长题干、图片、公式都不会把搜索区撑开 */
   flex: 0 0 472px;
+  width: 472px;
+  min-width: 472px;
+  max-width: 472px;
   /* 高度与排版区对齐：三栏同高，输入条始终贴在卡片底部 */
   padding: 14px;
   border: 1px solid var(--c-border);
@@ -2198,6 +2305,8 @@ html.dark .editor {
   display: flex;
   flex-direction: column;
   gap: 8px;
+  width: 100%;
+  min-width: 0;
   margin: 0;
   padding: 0 2px 0 0;
   list-style: none;
@@ -2205,15 +2314,37 @@ html.dark .editor {
 
 .hit {
   position: relative;
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
   padding: 10px 12px 32px;
   border: 1px solid var(--c-border);
   border-radius: var(--radius-sm);
   background: var(--c-subtle);
+  overflow: hidden;
   cursor: pointer;
   transition: border-color 0.2s var(--ease-soft), background 0.2s var(--ease-soft);
 }
 
-/* 来源文件：卡片顶部一行（文件仍存在用当前名，已删除回落到快照） */
+/* 元信息：学段 / 学科 / 认知目标 / 难度，卡片顶部第一行 */
+.hit-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  margin: 0 0 3px;
+  font-family: var(--font-heading);
+  font-size: 11px;
+  letter-spacing: 0.03em;
+  line-height: 1.4;
+  color: var(--c-orange);
+}
+
+.hit-meta-sep {
+  opacity: 0.5;
+}
+
+/* 来源文件：卡片第二行（文件仍存在用当前名，已删除回落到快照），超过 25 字符省略 */
 .hit-source {
   display: flex;
   align-items: center;
@@ -2283,6 +2414,7 @@ html.dark .editor {
 
 /* 题干完整显示，不做行数截断；超高由 .search-body 滚动承载 */
 .hit-text {
+  max-width: 100%;
   font-family: var(--font-body);
   font-size: 12.5px;
   line-height: 1.6;
@@ -2295,6 +2427,10 @@ html.dark .editor {
 }
 
 .hit-text :deep(img) {
+  max-width: 100%;
+}
+
+.hit-text :deep(table) {
   max-width: 100%;
 }
 

@@ -170,16 +170,45 @@
     <template v-else>
       <div v-if="!loggedIn" class="placeholder">{{ t('resources.questions.needLogin') }}</div>
 
-      <div v-else-if="loading" class="placeholder">
-        <span class="spinner" aria-hidden="true"></span>
-        {{ t('process.loading') }}
-      </div>
-
-      <div v-else-if="!lists.questions.rows.length" class="placeholder">
-        {{ t('resources.questions.empty') }}
-      </div>
-
       <template v-else>
+        <!-- 顶部筛选：全部（重置）/ 认知目标 / 难度 / 筛选按钮，默认展示全部 -->
+        <div class="q-filters">
+          <button
+            type="button"
+            class="q-filter-all"
+            :class="{ 'is-active': !hasFilter }"
+            @click="showAllQuestions"
+          >
+            {{ t('resources.questions.all') }}
+          </button>
+          <select v-model="filters.bloomType" class="q-filter-select" :aria-label="t('questionMeta.bloom')">
+            <option value="">{{ t('questionMeta.bloom') }}</option>
+            <option v-for="item in BLOOM_TYPES" :key="item" :value="item">{{ item }}</option>
+          </select>
+          <select v-model="filters.difficulty" class="q-filter-select" :aria-label="t('questionMeta.difficulty')">
+            <option value="">{{ t('questionMeta.difficulty') }}</option>
+            <option v-for="item in DIFFICULTIES" :key="item" :value="item">{{ item }}</option>
+          </select>
+          <button
+            type="button"
+            class="q-filter-apply"
+            :class="{ 'is-active': hasFilter }"
+            @click="applyQuestionFilters"
+          >
+            {{ t('resources.questions.filter') }}
+          </button>
+        </div>
+
+        <div v-if="loading" class="placeholder">
+          <span class="spinner" aria-hidden="true"></span>
+          {{ t('process.loading') }}
+        </div>
+
+        <div v-else-if="!lists.questions.rows.length" class="placeholder">
+          {{ hasFilter ? t('resources.questions.noMatch') : t('resources.questions.empty') }}
+        </div>
+
+        <template v-else>
         <div class="qs-layout" :class="{ 'has-panel': activeQuestion }">
           <div class="qs-main">
             <p class="count">{{ t('resources.questions.total', { total: lists.questions.total }) }}</p>
@@ -208,25 +237,13 @@
                       <path d="m4 16.4 8 4.1 8-4.1" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round" />
                     </svg>
                   </span>
-                  <span v-if="row.subject" class="row-kind">{{ row.subject }}</span>
-                  <span v-if="row.subject && row.grade" class="row-sep">/</span>
-                  <span v-if="row.grade" class="row-kind">{{ row.grade }}</span>
-
-                  <!-- 来源：题目导入时的文件名，后端联表 ocr_task 带出；文件名过长时省略 -->
-                  <template v-if="row.sourceName">
-                    <span v-if="row.subject || row.grade" class="row-sep">/</span>
-                    <span class="row-source" :title="row.sourceName">
-                      <svg viewBox="0 0 24 24" width="12" height="12" fill="none" aria-hidden="true">
-                        <path
-                          d="M13.5 3.6H7.4A1.8 1.8 0 0 0 5.6 5.4v13.2a1.8 1.8 0 0 0 1.8 1.8h9.2a1.8 1.8 0 0 0 1.8-1.8V8.4l-4.9-4.8Z"
-                          stroke="currentColor"
-                          stroke-width="1.7"
-                          stroke-linejoin="round"
-                        />
-                        <path d="M13.3 3.8v4.6h4.7" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round" />
-                      </svg>
-                      <span class="row-source-name">{{ row.sourceName }}</span>
-                    </span>
+                  <!-- 行头：学段 / 学科 / 布鲁姆认知目标 / 难度，空值自动跳过 -->
+                  <template
+                    v-for="(item, i) in [row.grade, row.subject, row.bloomType, row.difficulty].filter(Boolean)"
+                    :key="item"
+                  >
+                    <span v-if="i > 0" class="row-sep">/</span>
+                    <span class="row-kind">{{ item }}</span>
                   </template>
 
                   <div class="row-tools">
@@ -251,6 +268,20 @@
                       {{ t('search.delete') }}
                     </button>
                   </div>
+                </div>
+
+                <!-- 来源：题目导入时的文件名（后端联表 ocr_task 带出），单独占第二行，过长时省略 -->
+                <div v-if="row.sourceName" class="row-source-line" :title="row.sourceName">
+                  <svg viewBox="0 0 24 24" width="13" height="13" fill="none" aria-hidden="true">
+                    <path
+                      d="M13.5 3.6H7.4A1.8 1.8 0 0 0 5.6 5.4v13.2a1.8 1.8 0 0 0 1.8 1.8h9.2a1.8 1.8 0 0 0 1.8-1.8V8.4l-4.9-4.8Z"
+                      stroke="currentColor"
+                      stroke-width="1.7"
+                      stroke-linejoin="round"
+                    />
+                    <path d="M13.3 3.8v4.6h4.7" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round" />
+                  </svg>
+                  <span class="row-source-name">{{ row.sourceName }}</span>
                 </div>
 
                 <!-- 题干是题库里的 Markdown（含公式、图片与表格），按文件解析页的排版完整渲染 -->
@@ -282,30 +313,28 @@
             @close="activeQuestion = null"
           />
         </div>
+        </template>
       </template>
     </template>
   </div>
 </template>
 
 <script setup>
-import { inject, onMounted, reactive, ref, watch } from 'vue'
+import { computed, inject, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { deleteOcrTask, pageOcrTasks } from '@/api/ocr'
 import { pagePapers } from '@/api/paper'
-import { deleteQuestion, pageQuestions } from '@/api/question'
+import { deleteQuestion, filterQuestions, pageQuestions } from '@/api/question'
 import { currentUser, isLoggedIn } from '@/utils/auth'
 import { renderRichMarkdown } from '@/utils/markdown'
+import { BLOOM_TYPES, DIFFICULTIES } from '@/utils/questionMeta'
 import QuestionBankPanel from '@/components/QuestionBankPanel.vue'
 
-/**
- * 三个标签页都是完整列表、可翻页。
- * 文件与试卷每页 20 条；题库每页 10 条（题干完整渲染后单行更高）。
- * 与侧栏「近期文件」（只列最近 10 条、不翻页）是两种定位，不要共用同一个常量。
- */
+/** 三个标签页都是完整列表、可翻页，每页统一 20 条（题库题干完整渲染后单行更高，也按此翻页） */
 const PAGE_SIZE = 20
-const QUESTION_PAGE_SIZE = 10
+const QUESTION_PAGE_SIZE = 20
 
 const { t } = useI18n()
 const route = useRoute()
@@ -339,10 +368,18 @@ const lists = reactive({
 /** 正在查看分析详情的题目（列表行摘要），非空时在右侧展开面板 */
 const activeQuestion = ref(null)
 
+/** 我的题目筛选：filters 是下拉里当前选择，appliedFilters 是点击「筛选」后真正生效的条件 */
+const filters = reactive({ bloomType: '', difficulty: '' })
+const appliedFilters = reactive({ bloomType: '', difficulty: '' })
+const hasFilter = computed(() => Boolean(appliedFilters.bloomType || appliedFilters.difficulty))
+
 const LOADERS = {
   files: (pageNo) => pageOcrTasks(pageNo, PAGE_SIZE),
   papers: (pageNo) => pagePapers(pageNo),
-  questions: (pageNo) => pageQuestions(pageNo, QUESTION_PAGE_SIZE)
+  questions: (pageNo) =>
+    hasFilter.value
+      ? filterQuestions({ ...appliedFilters, pageNo, pageSize: QUESTION_PAGE_SIZE })
+      : pageQuestions(pageNo, QUESTION_PAGE_SIZE)
 }
 
 // 递增序号用于丢弃过期响应：快速切标签时，先发出的请求可能后返回
@@ -371,6 +408,24 @@ async function load(tab, pageNo) {
 
 function goPage(tab, next) {
   load(tab, next)
+}
+
+/** 点击「筛选」：把下拉里的认知目标 / 难度生效，回到第一页按条件查询 */
+function applyQuestionFilters() {
+  appliedFilters.bloomType = filters.bloomType
+  appliedFilters.difficulty = filters.difficulty
+  activeQuestion.value = null
+  load('questions', 1)
+}
+
+/** 点击「全部」：清空筛选条件，回到完整的题库列表 */
+function showAllQuestions() {
+  filters.bloomType = ''
+  filters.difficulty = ''
+  appliedFilters.bloomType = ''
+  appliedFilters.difficulty = ''
+  activeQuestion.value = null
+  load('questions', 1)
 }
 
 /** 点击文件记录进入该文件的题目渲染交互页（带来源标记，页内的返回按钮据此回到本页） */
@@ -555,6 +610,82 @@ onMounted(() => load(activeTab.value, 1))
   font-family: var(--font-heading);
   font-size: 12.5px;
   color: var(--c-mid-gray);
+}
+
+/* ---------------- 我的题目：顶部筛选 ---------------- */
+
+.q-filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin: 0 0 12px;
+}
+
+.q-filter-all,
+.q-filter-apply {
+  height: 32px;
+  padding: 0 15px;
+  border: 1px solid var(--c-border);
+  border-radius: 999px;
+  background: var(--c-surface);
+  color: var(--c-mid-gray);
+  font-family: var(--font-heading);
+  font-size: 12.5px;
+  cursor: pointer;
+  transition: background-color 0.18s ease, color 0.18s ease, border-color 0.18s ease;
+}
+
+.q-filter-all:hover {
+  border-color: var(--c-orange);
+  color: var(--c-orange);
+}
+
+.q-filter-all.is-active {
+  border-color: var(--c-orange);
+  background: var(--c-orange);
+  color: var(--c-on-accent);
+}
+
+.q-filter-select {
+  width: 132px;
+  height: 32px;
+  padding: 0 30px 0 14px;
+  border: 1px solid var(--c-border);
+  border-radius: 999px;
+  background-color: var(--c-surface);
+  /* 原生箭头会贴到右边缘，改用自绘箭头，固定在右侧留白内 */
+  background-image: url("data:image/svg+xml;charset=UTF-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%23b0aea5' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+  appearance: none;
+  color: var(--c-dark);
+  font-family: var(--font-heading);
+  font-size: 12.5px;
+  cursor: pointer;
+}
+
+.q-filter-select:focus {
+  border-color: var(--c-orange);
+  outline: none;
+}
+
+/* 「全部」与「筛选」是互斥的选中态：默认都未选中，筛选生效后只高亮「筛选」 */
+.q-filter-all.is-active,
+.q-filter-apply.is-active {
+  border-color: var(--c-orange);
+  background: var(--c-orange);
+  color: var(--c-on-accent);
+}
+
+.q-filter-apply:hover {
+  border-color: var(--c-orange);
+  color: var(--c-orange);
+}
+
+.q-filter-apply.is-active:hover {
+  color: var(--c-on-accent);
+  filter: brightness(1.05);
 }
 
 /* 入场：整片卡片自上而下依次浮起，只做一次性错峰，不做滚动监听 */
@@ -814,7 +945,7 @@ onMounted(() => load(activeTab.value, 1))
   font-size: 13px;
   letter-spacing: 0.06em;
   text-transform: uppercase;
-  /* 整行行头（学科 / 学段 / 来源）统一用主题色高亮 */
+  /* 行头（学段 / 学科 / 认知目标 / 难度）统一用主题色高亮 */
   color: var(--c-orange);
 }
 
@@ -831,23 +962,25 @@ onMounted(() => load(activeTab.value, 1))
   color: rgba(217, 119, 87, 0.38);
 }
 
-/* 来源文件名：跟学科 / 学段同一行，超长时省略，悬停看完整文件名 */
-.row-source {
-  display: inline-flex;
+/* 来源文件名：单独第二行，与行头图标同一起点左右对齐，超长时省略 */
+.row-source-line {
+  display: flex;
   align-items: center;
-  gap: 5px;
-  flex: 0 1 auto;
+  gap: 7px;
   min-width: 0;
-  max-width: 300px;
-  text-transform: none;
+  max-width: 100%;
+  margin: -3px 0 9px;
+  font-family: var(--font-heading);
+  font-size: 12.5px;
   letter-spacing: 0.01em;
+  color: var(--c-orange);
 }
 
-.row-source svg {
+.row-source-line svg {
   flex: none;
   width: 14px;
   height: 14px;
-  opacity: 0.75;
+  opacity: 0.85;
 }
 
 .row-source-name {

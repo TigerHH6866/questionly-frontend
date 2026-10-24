@@ -56,17 +56,7 @@
               v-for="item in selected"
               :key="item.knowledgeId"
               class="kp-chip"
-              :class="{ primary: item.knowledgeId === primaryId }"
             >
-              <button
-                class="kp-star"
-                type="button"
-                :title="t('knowledge.setPrimary')"
-                :aria-label="t('knowledge.setPrimary')"
-                @click="setPrimary(item.knowledgeId)"
-              >
-                ★
-              </button>
               <span class="kp-chip-text">
                 <span class="kp-chip-name">{{ item.name }}</span>
                 <span class="kp-chip-meta">{{ item.stage }} · {{ item.subject }}</span>
@@ -85,10 +75,9 @@
         </button>
         <span v-if="inline" class="kp-merge-hint">{{ t('knowledge.mergeHint') }}</span>
         <div v-else class="kp-actions">
-          <button class="kp-cancel" type="button" :disabled="saving" @click="close">{{ t('knowledge.cancel') }}</button>
-          <button class="kp-save" type="button" :disabled="saving" @click="save">
-            <span v-if="saving" class="kp-spinner" aria-hidden="true"></span>
-            {{ saving ? t('knowledge.saving') : t('knowledge.save') }}
+          <button class="kp-cancel" type="button" @click="close">{{ t('knowledge.cancel') }}</button>
+          <button class="kp-save" type="button" @click="save">
+            {{ t('knowledge.save') }}
           </button>
         </div>
       </footer>
@@ -99,12 +88,10 @@
 <script setup>
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { ElMessage } from 'element-plus'
 import {
   getKbFacets,
   getKbKnowledgeList,
-  getQuestionKnowledge,
-  saveQuestionKnowledge
+  getQuestionKnowledge
 } from '@/api/question'
 
 const props = defineProps({
@@ -130,10 +117,8 @@ const stage = ref('')
 const subject = ref('')
 const items = ref([])
 const selected = ref([])
-const primaryId = ref('')
 const keyword = ref('')
 const loading = ref(false)
-const saving = ref(false)
 let searchTimer = null
 
 /** 学段去重，保持后端返回顺序（小学 → 初中 → 高中）；
@@ -163,13 +148,12 @@ function isSelected(id) {
   return selected.value.some((item) => item.knowledgeId === idOf(id))
 }
 
-/** 加入或移除知识点；主知识点缺失时自动落到第一个 */
+/** 加入或移除知识点 */
 function toggleItem(item) {
   const id = idOf(item.id)
   const at = selected.value.findIndex((entry) => entry.knowledgeId === id)
   if (at >= 0) {
     selected.value.splice(at, 1)
-    if (primaryId.value === id) primaryId.value = selected.value[0]?.knowledgeId || ''
     syncInline()
     return
   }
@@ -179,25 +163,17 @@ function toggleItem(item) {
     stage: item.stage,
     subject: item.subject
   })
-  if (!primaryId.value) primaryId.value = id
   syncInline()
 }
 
 function removeItem(knowledgeId) {
   const id = idOf(knowledgeId)
   selected.value = selected.value.filter((item) => item.knowledgeId !== id)
-  if (primaryId.value === id) primaryId.value = selected.value[0]?.knowledgeId || ''
-  syncInline()
-}
-
-function setPrimary(knowledgeId) {
-  primaryId.value = idOf(knowledgeId)
   syncInline()
 }
 
 function clearAll() {
   selected.value = []
-  primaryId.value = ''
   syncInline()
 }
 
@@ -250,8 +226,6 @@ async function init() {
     stage: item.stage,
     subject: item.subject
   }))
-  const primary = bound.find((item) => item.role === 1)
-  primaryId.value = primary ? idOf(primary.knowledgeId) : selected.value[0]?.knowledgeId || ''
 
   const first = selected.value[0]
   // 由 AI 分析报告带入学段时，学段/学科按报告原样装填（即使目录暂无该组合）
@@ -267,37 +241,20 @@ async function init() {
   await loadList()
 }
 
-/** 当前选择转成接口结构，role=1 表示主知识点 */
+/** 当前选择转成父级结构：只带知识点本身，不区分主次与来源 */
 function currentNodes() {
   return selected.value.map((item) => ({
     knowledgeId: item.knowledgeId,
-    role: item.knowledgeId === primaryId.value ? 1 : 2,
     name: item.name,
     stage: item.stage,
     subject: item.subject
   }))
 }
 
-async function save() {
-  if (saving.value) return
-  const nodes = currentNodes()
-  // 题目还没入库：先把选择交给调用方暂存，入库时再一起写
-  if (props.local) {
-    emit('selected', nodes)
-    if (!props.inline) close()
-    return
-  }
-  saving.value = true
-  try {
-    await saveQuestionKnowledge(props.questionId, nodes)
-    ElMessage.success(t('knowledge.saved'))
-    emit('saved')
-    if (!props.inline) close()
-  } catch {
-    // 失败提示由 http 拦截器统一弹出
-  } finally {
-    saving.value = false
-  }
+/** 只在「随题目一起保存」时提交：选择交给调用方暂存，不再单独落库 */
+function save() {
+  emit('selected', currentNodes())
+  if (!props.inline) close()
 }
 
 function close() {
@@ -556,12 +513,6 @@ onBeforeUnmount(() => {
   background: var(--c-surface);
 }
 
-.kp-chip.primary {
-  border-color: rgba(217, 119, 87, 0.45);
-  background: rgba(217, 119, 87, 0.07);
-}
-
-.kp-star,
 .kp-remove {
   flex: none;
   padding: 0 2px;
@@ -572,10 +523,6 @@ onBeforeUnmount(() => {
   color: var(--c-mid-gray);
   cursor: pointer;
   transition: color 0.15s var(--ease-soft);
-}
-
-.kp-chip.primary .kp-star {
-  color: var(--c-orange);
 }
 
 .kp-remove:hover {

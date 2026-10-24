@@ -260,6 +260,7 @@
 
         <!-- 答案分析：默认空态给 AI 解题入口，生成后转为可编辑正文 -->
         <template v-else-if="panelTab === 'answer'">
+          <p class="answer-notice">{{ t('process.answerNotice') }}</p>
           <div v-if="!hasAnswer" class="answer-empty">
             <button class="answer-action" type="button" :disabled="solvingIndex >= 0" @click="generateAnswer">
               <span v-if="solvingIndex >= 0" class="mini-spinner" aria-hidden="true"></span>
@@ -342,7 +343,6 @@ import {
   getQuestionDetail,
   getQuestionAnswer,
   getQuestionKnowledge,
-  saveQuestionKnowledge
 } from '@/api/question'
 import {
   toBlocks,
@@ -350,7 +350,8 @@ import {
   renderQuestion,
   questionMarkdown,
   questionLatex,
-  editedHtmlToLatex
+  editedHtmlToLatex,
+  absolutizeImages
 } from '@/utils/document'
 import { renderMarkdown } from '@/utils/markdown'
 import {
@@ -651,20 +652,10 @@ function onKnowledgeSelected(items) {
   panelKnowledge.value = items || []
 }
 
-/** 把知识点标签里的选择随题目一起写入；没打开过该标签就跳过，避免覆盖原有绑定 */
-async function commitKnowledge(questionId, index) {
-  if (!knowledgeTouched.has(index)) return
-  const nodes = (knowledgePending.get(index) || panelKnowledge.value || []).map((item) => ({
-    knowledgeId: item.knowledgeId,
-    role: item.role
-  }))
-  try {
-    await saveQuestionKnowledge(questionId, nodes)
-    knowledgePending.delete(index)
-    knowledgeTouched.delete(index)
-  } catch {
-    // 知识点绑定失败不影响题目本身已保存
-  }
+/** 该题当前勾选的知识点 ID，随「存入题库 / 更新题库」一起提交 */
+function knowledgeIdsOf(index) {
+  const items = knowledgePending.get(index) || panelKnowledge.value || []
+  return items.map((item) => Number(item.knowledgeId))
 }
 
 /** 正在编辑的题号（稳定 ocrIndex），-1 表示没有题目处于编辑态 */
@@ -691,9 +682,10 @@ function noOf(index) {
   return questions.value.findIndex((question) => question.index === index) + 1
 }
 
-/** 题目当前 HTML：编辑过用编辑态快照，否则按块渲染 */
+/** 题目当前 HTML：编辑过用编辑态快照，否则按块渲染；表格里的相对图片统一补全为 OSS 地址 */
 function htmlOf(question) {
-  return question.editedHtml || renderQuestion(question.blocks, imagesBase.value)
+  const html = question.editedHtml || renderQuestion(question.blocks, imagesBase.value)
+  return absolutizeImages(html, imagesBase.value)
 }
 
 /** 题目当前 Markdown：编辑过从快照反推，否则走原有的块转换 */
@@ -778,7 +770,7 @@ function applyDraft(raw, parsed) {
       index: item.i,
       blocks: source.flatMap((index) => blocksOf.get(index) || []),
       source,
-      editedHtml: item.h || '',
+      editedHtml: hasVisibleContent(item.h) ? item.h : '',
       // 该题已入库时的题库题目 ID，打开文件时校验是否仍有效
       questionId: item.qid || null,
       html: '',
@@ -936,11 +928,13 @@ async function saveToBank() {
   const edited = editCache.get(index)
   const details = edited ? toEditedMarkdown(edited) : analysisCache.get(index) || ''
   const answers = answerValueOf(index)
-  // 只改了四个元信息下拉也算有效修改（已入库题目可直接更新元信息）
+  // 只改了四个元信息下拉或知识点也算有效修改（已入库题目可直接更新）
+  const knowledgeChanged = knowledgeTouched.has(index)
   const metaChanged = metaStage.value !== metaSnapshot.stage
     || metaSubject.value !== metaSnapshot.subject
     || metaBloom.value !== metaSnapshot.bloom
     || metaDifficulty.value !== metaSnapshot.difficulty
+    || knowledgeChanged
   if (!details && !answers && !metaChanged) {
     ElMessage.warning(t('process.saveEmpty'))
     return
@@ -955,20 +949,26 @@ async function saveToBank() {
       difficulty: metaDifficulty.value
     }
     if (question.saved && question.questionId) {
-      // 已入库：更新分析结果与答案（未改动的参数传 undefined 表示保持不变）
-      await updateQuestion(question.questionId, details || undefined, answers || undefined, meta)
-      await commitKnowledge(question.questionId, index)
+      // 已入库：更新分析结果、答案与知识点（未改动的参数传 undefined 表示保持不变）
+      await updateQuestion(question.questionId, details || undefined, answers || undefined, {
+        ...meta,
+        knowledgeIds: knowledgeChanged ? knowledgeIdsOf(index) : undefined
+      })
+      knowledgePending.delete(index)
+      knowledgeTouched.delete(index)
       bankCache.delete(index)
       ElMessage.success(t('process.updated'))
     } else {
       // 返回题目在题库中的雪花 ID（已入库则返回已有 ID），写进模型并落草稿
-      const id = await saveQuestion(markdownOf(question), details, answers, props.id, question.index, meta)
+      const id = await saveQuestion(markdownOf(question), details, answers, props.id, question.index, {
+        ...meta,
+        knowledgeIds: knowledgeIdsOf(index)
+      })
       question.questionId = id
       question.saved = true
+      knowledgePending.delete(index)
+      knowledgeTouched.delete(index)
       markDraftDirty()
-
-      // 知识点标签里已选的内容，拿到题目 ID 后一并写入绑定
-      await commitKnowledge(id, index)
 
       ElMessage.success(t('process.saved'))
       // 入库一道题消耗一份题目额度，同步账号胶囊里的余额
@@ -1143,17 +1143,40 @@ function setEditBody(el) {
 }
 
 /**
+ * 编辑后的正文是否还有可见内容：只剩 <br> / 空白 / 空段落时视为空。
+ * 删除或剪切把内容清光时，不能把空壳当成编辑结果，否则整道题会看起来消失。
+ */
+function hasVisibleContent(html) {
+  if (!html) return false
+  if (/<(img|video|table|svg|canvas)\b/i.test(html)) return true
+  const text = html
+    .replace(/<br\s*\/?>/gi, '')
+    .replace(/<[^>]*>/g, '')
+    .replace(/&nbsp;|&#160;/gi, ' ')
+    .trim()
+  return Boolean(text)
+}
+
+/**
  * 把编辑态正文写回模型，不退出编辑。
  * 只有本次编辑真的改过内容（打字 / 回车 / 应用格式）才落快照，
  * 避免仅进出编辑模式就把题干变成 HTML 快照、丢掉可无损转换的块结构。
+ * 内容被删空时回落到原始识别块，避免题目再次进入编辑时变成空白。
  */
 function commitEdit() {
   const index = editingIndex.value
   if (index < 0 || !dirtyEdit || !editBodyRef) return
   const question = questionOf(index)
   if (!question) return
-  question.editedHtml = editBodyRef.innerHTML
-  question.html = question.editedHtml
+  const html = editBodyRef.innerHTML
+  dirtyEdit = false
+  if (hasVisibleContent(html)) {
+    question.editedHtml = html
+    question.html = html
+  } else {
+    question.editedHtml = ''
+    question.html = renderQuestion(question.blocks, imagesBase.value)
+  }
   markDraftDirty()
 }
 
@@ -2141,6 +2164,19 @@ onBeforeUnmount(() => {
   color: var(--c-mid-gray);
 }
 
+/* 答案正文顶部的免责提示：常驻但独立于可编辑正文，避免被保存进答案 */
+.answer-notice {
+  flex: none;
+  margin: 10px 24px 0;
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: var(--c-subtle);
+  color: var(--c-mid-gray);
+  font-family: var(--font-body);
+  font-size: 12.5px;
+  line-height: 1.6;
+}
+
 /* 答案空态：两个入口居中 */
 .answer-empty {
   flex: 1;
@@ -2507,6 +2543,14 @@ onBeforeUnmount(() => {
   background: var(--c-subtle);
 }
 
+/* 表格单元格内的图片（装置图等）：按单元格宽度等比缩放，居中显示 */
+:deep(.blk-table td img) {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  margin: 0 auto;
+}
+
 :deep(.blk-image) {
   margin: 16px 0;
 }
@@ -2536,6 +2580,31 @@ onBeforeUnmount(() => {
 
 :deep(.blk-image img) {
   max-width: 100%;
+}
+
+/* 整条图（甲乙丙被识成一张宽图）：宽度贴合图片，标签按图宽均分到对应子图下方 */
+:deep(.blk-image-multi) {
+  display: table;
+  max-width: 100%;
+  margin: 16px auto;
+}
+
+:deep(.blk-image-labels) {
+  display: flex;
+  justify-content: space-around;
+  align-items: center;
+  margin-top: 6px;
+  font-family: var(--font-body);
+  font-size: 14px;
+}
+
+/* 单张图的整句图注 */
+:deep(.blk-image-caption) {
+  margin-top: 6px;
+  text-align: center;
+  font-size: 13px;
+  color: var(--c-muted);
+  line-height: 1.6;
 }
 
 :deep(.blk-images > .blk-image img) {

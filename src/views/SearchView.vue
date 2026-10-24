@@ -44,6 +44,15 @@
                       {{ t('process.questionLabel', { n: (turn.page - 1) * turn.pageSize + qi + 1 }) }}
                     </div>
 
+                    <!-- 元信息：学段 / 学科 / 认知目标 / 难度，空值自动跳过 -->
+                    <template
+                      v-for="(item, i) in [q.grade, q.subject, q.bloomType, q.difficulty].filter(Boolean)"
+                      :key="item"
+                    >
+                      <span v-if="i > 0" class="q-meta-sep">/</span>
+                      <span class="q-meta-item">{{ item }}</span>
+                    </template>
+
                     <div class="q-actions">
                       <button class="act copy-latex" type="button" @click="copyLatex(q)">
                         {{ t('process.copyLatex') }}
@@ -56,6 +65,21 @@
                       </button>
                     </div>
                   </div>
+
+                  <!-- 来源：导入时的文件名，单独占第二行，超过 25 个字符省略 -->
+                  <p v-if="q.sourceName" class="q-source" :title="q.sourceName">
+                    <svg viewBox="0 0 24 24" width="13" height="13" fill="none" aria-hidden="true">
+                      <path
+                        d="M13.5 3.6H7.4A1.8 1.8 0 0 0 5.6 5.4v13.2a1.8 1.8 0 0 0 1.8 1.8h9.2a1.8 1.8 0 0 0 1.8-1.8V8.4l-4.9-4.8Z"
+                        stroke="currentColor"
+                        stroke-width="1.7"
+                        stroke-linejoin="round"
+                      />
+                      <path d="M13.3 3.8v4.6h4.7" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round" />
+                    </svg>
+                    <span>{{ clipSourceName(q.sourceName) }}</span>
+                  </p>
+
                   <div class="q-body" v-html="q.html"></div>
                 </section>
               </article>
@@ -156,6 +180,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { searchQuestions, deleteQuestion } from '@/api/question'
 import { recognizeAudio } from '@/api/asr'
 import { renderRichMarkdown } from '@/utils/markdown'
+import { clipSourceName } from '@/utils/questionMeta'
 import { markdownToLatex } from '@/utils/document'
 import QuestionBankPanel from '@/components/QuestionBankPanel.vue'
 import { isLoggedIn } from '@/utils/auth'
@@ -190,6 +215,9 @@ function toRecord(raw) {
     details: raw.details || '',
     subject: raw.subject || '',
     grade: raw.grade || '',
+    bloomType: raw.bloomType || '',
+    difficulty: raw.difficulty || '',
+    sourceName: raw.sourceName || '',
     createdAt: raw.created_at || raw.createdAt || '',
     html: renderRichMarkdown(raw.title || '')
   }
@@ -684,12 +712,12 @@ onBeforeUnmount(() => {
   box-shadow: inset 3px 0 0 var(--c-orange);
 }
 
-/* 题头：左侧题号标签 + 右侧操作入口，同处一行 */
+/* 题头：左侧题号标签 + 元信息 + 右侧操作入口，同处一行 */
 .q-head {
   display: flex;
   align-items: center;
-  gap: 12px;
-  margin-bottom: 14px;
+  gap: 10px;
+  margin-bottom: 8px;
 }
 
 .q-tag {
@@ -711,6 +739,45 @@ onBeforeUnmount(() => {
   align-items: center;
   gap: 8px;
   margin-left: auto;
+}
+
+/* 元信息：学段 / 学科 / 认知目标 / 难度，与题库列表一致用主题色 */
+.q-meta-item,
+.q-meta-sep {
+  flex: none;
+  font-family: var(--font-heading);
+  font-size: 12.5px;
+  letter-spacing: 0.04em;
+  color: var(--c-orange);
+}
+
+.q-meta-sep {
+  opacity: 0.5;
+}
+
+/* 来源文件名：题头下方第二行，超过 25 字符省略，悬停看完整名称 */
+.q-source {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  margin: 0 0 14px;
+  font-family: var(--font-heading);
+  font-size: 12.5px;
+  letter-spacing: 0.01em;
+  color: var(--c-mid-gray);
+}
+
+.q-source svg {
+  flex: none;
+  opacity: 0.8;
+}
+
+.q-source span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* 题头操作入口：主色底 + 白字（同录入题目页），删除为中性描边 */

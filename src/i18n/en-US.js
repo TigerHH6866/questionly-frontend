@@ -136,7 +136,10 @@ export default {
       empty: 'No questions yet — import a file and save them to the bank',
       needLogin: 'Sign in to view your questions',
       detail: 'View details',
-      stem: 'Question'
+      stem: 'Question',
+      all: 'All',
+      filter: 'Filter',
+      noMatch: 'No questions match the filter'
     }
   },
   tasks: {
@@ -160,7 +163,7 @@ export default {
     subtitle: 'Upload papers, images or documents to extract questions and generate analysis reports',
     drop: {
       title: 'Click to choose a file, or drag and drop it here',
-      hint: 'Supports png / jpg / jpeg / doc / docx / pdf, up to 100MB per file; you can also press Ctrl+V to paste a screenshot or file'
+      hint: 'Images up to 10MB; PDF / Word up to 20MB and 50 pages; you can also press Ctrl+V to paste a screenshot or file'
     },
     start: 'Start recognition',
     waiting: 'Recognizing document…',
@@ -171,7 +174,9 @@ export default {
     remove: 'Remove file',
     error: {
       type: 'Only png / jpg / jpeg / doc / docx / pdf files are supported',
-      size: 'File size cannot exceed 100MB'
+      imageSize: 'Images cannot exceed 10MB',
+      docSize: 'Files cannot exceed 20MB',
+      pages: 'Files cannot exceed 50 pages'
     },
     cards: {
       recognize: {
@@ -209,6 +214,7 @@ export default {
     tabAnswer: 'Answer',
     aiSolve: 'AI Solve',
     answerSolving: 'Solving…',
+    answerNotice: 'AI answers may be affected by image recognition or model capability — for reference only.',
     updateBank: 'Update bank',
     updated: 'Updated',
     close: 'Close',
@@ -292,7 +298,11 @@ export default {
       exported: 'PDF download started',
       exportedWord: 'Word download started',
       exportEmpty: 'The paper is empty. Add questions before exporting',
-      exportFailed: 'Failed to generate the file, please try again'
+      exportFailed: 'Failed to generate the file, please try again',
+      leaveTitle: 'Leave the paper editor',
+      leaveConfirm: 'This paper has unsaved changes. Save it before leaving?',
+      saveAndLeave: 'Save and leave',
+      stayEditing: 'Keep editing'
     }
   },
   auth: {
@@ -393,12 +403,9 @@ export default {
     noResult: 'No matching knowledge points',
     selected: '{count} selected',
     empty: 'No knowledge points linked yet',
-    setPrimary: 'Set as primary',
     clear: 'Clear all',
     cancel: 'Cancel',
-    save: 'Save',
-    saving: 'Saving…',
-    saved: 'Knowledge points saved'
+    save: 'Save'
   },
   search: {
     placeholder: 'Describe the questions you need, e.g. "find questions about the Gua-Dou principle"',
