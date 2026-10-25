@@ -250,15 +250,27 @@
                     <button
                       class="row-open"
                       type="button"
-                      :title="t('resources.questions.detail')"
-                      :aria-label="t('resources.questions.detail')"
-                      @click.stop="openQuestion(row)"
+                      :class="{ 'is-on': editingId === row.id }"
+                      :title="editingId === row.id ? t('process.editDone') : t('resources.questions.edit')"
+                      :aria-label="editingId === row.id ? t('process.editDone') : t('resources.questions.edit')"
+                      @click.stop="editingId === row.id ? saveQuestionEdit(row) : startQuestionEdit(row)"
                     >
-                      <svg viewBox="0 0 24 24" width="14" height="14" fill="none" aria-hidden="true">
+                      <!-- 常态是铅笔（进入题干编辑），编辑中换成对勾（保存并退出） -->
+                      <svg v-if="editingId !== row.id" viewBox="0 0 24 24" width="14" height="14" fill="none" aria-hidden="true">
                         <path
-                          d="m9 5 7 7-7 7"
+                          d="M12 20h9M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5Z"
                           stroke="currentColor"
-                          stroke-width="1.8"
+                          stroke-width="1.7"
+                          stroke-linecap="round"
+                          stroke-linejoin="round"
+                        />
+                      </svg>
+                      <svg v-else viewBox="0 0 24 24" width="14" height="14" fill="none" aria-hidden="true">
+                        <circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="1.7" />
+                        <path
+                          d="m8 12.4 2.7 2.7 5.5-5.6"
+                          stroke="currentColor"
+                          stroke-width="1.9"
                           stroke-linecap="round"
                           stroke-linejoin="round"
                         />
@@ -284,8 +296,18 @@
                   <span class="row-source-name">{{ row.sourceName }}</span>
                 </div>
 
-                <!-- 题干是题库里的 Markdown（含公式、图片与表格），按文件解析页的排版完整渲染 -->
-                <div class="row-stem" v-html="renderRichMarkdown(row.title)"></div>
+                <!-- 题干是题库里的 Markdown（含公式、图片与表格），按文件解析页的排版完整渲染；
+                     编辑态换成同一套公式可编辑区，点击与回车不再冒泡到整行（避免误开分析面板） -->
+                <MathEditArea
+                  v-if="editingId === row.id"
+                  :ref="setEditBody"
+                  class="row-stem is-editing"
+                  @click.stop
+                  @input="onEditInput"
+                  @focusout="onEditFocusOut"
+                  @keydown.stop="onEditKeydown"
+                />
+                <div v-else class="row-stem" v-html="renderRichMarkdown(row.title)"></div>
 
                 <!-- 入库时间移到行尾右下角，让行头只放学科 / 学段 / 来源 -->
                 <div class="row-foot">
@@ -313,6 +335,9 @@
             @close="activeQuestion = null"
           />
         </div>
+
+        <!-- 行内编辑题干时的划词格式浮窗：加粗 / 斜体 / 下划线 / 着重号 -->
+        <SelectionFormatBar v-if="editingId !== null" :target="editBodyRef" />
         </template>
       </template>
     </template>
@@ -320,16 +345,19 @@
 </template>
 
 <script setup>
-import { computed, inject, onMounted, reactive, ref, watch } from 'vue'
+import { computed, inject, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { deleteOcrTask, pageOcrTasks } from '@/api/ocr'
 import { pagePapers } from '@/api/paper'
-import { deleteQuestion, filterQuestions, pageQuestions } from '@/api/question'
+import { deleteQuestion, filterQuestions, pageQuestions, updateQuestion } from '@/api/question'
 import { currentUser, isLoggedIn } from '@/utils/auth'
 import { renderRichMarkdown } from '@/utils/markdown'
 import { BLOOM_TYPES, DIFFICULTIES } from '@/utils/questionMeta'
+import { toQuestionMarkdown } from '@/utils/editedMarkdown'
+import MathEditArea from '@/components/MathEditArea.vue'
+import SelectionFormatBar from '@/components/SelectionFormatBar.vue'
 import QuestionBankPanel from '@/components/QuestionBankPanel.vue'
 
 /** 三个标签页都是完整列表、可翻页，每页统一 20 条（题库题干完整渲染后单行更高，也按此翻页） */
@@ -368,6 +396,121 @@ const lists = reactive({
 /** 正在查看分析详情的题目（列表行摘要），非空时在右侧展开面板 */
 const activeQuestion = ref(null)
 
+/** 正在行内编辑题干的题目 ID；非空时该行题干换成可编辑区（详见 startQuestionEdit） */
+const editingId = ref(null)
+/** 编辑态正文组件实例（MathEditArea）：手动 paint 写入，不挂 v-html 绑定 */
+const editBodyRef = ref(null)
+/** 本次编辑是否真的改过内容：没有改动时点勾 / 失焦只退出编辑，不发更新请求 */
+let dirtyEdit = false
+/** 是否正在提交保存：避免点击外部与 focusout 同时触发两次更新请求 */
+let editSaving = false
+
+/** 函数式 ref：v-for 里注销时的 null 不覆盖当前编辑区，避免切换题目后拿不到实例 */
+function setEditBody(el) {
+  if (el) editBodyRef.value = el
+}
+
+/** 铅笔进入题干编辑：正文能力与文件解析页同一套（公式原子节点、划词格式、粘贴规范化） */
+async function startQuestionEdit(row) {
+  if (editingId.value === row.id) return
+  // 已在编辑别的题：先按文件解析页的习惯提交当前改动，失败（如题干被清空）就停在原题
+  if (editingId.value !== null) {
+    const current = lists.questions.rows.find((item) => item.id === editingId.value)
+    if (current && !(await saveQuestionEdit(current))) return
+  }
+  editingId.value = row.id
+  dirtyEdit = false
+  await nextTick()
+  // 关掉 CSS 化的加粗 / 斜体，让 execCommand 产出 <b> / <i>，便于反转 Markdown 与 LaTeX
+  document.execCommand('styleWithCSS', false, false)
+  const body = editBodyRef.value
+  if (!body) return
+  body.paint(renderRichMarkdown(row.title))
+  body.focus()
+}
+
+/** 完成编辑：正文转回 Markdown 写回题库，列表行同步替换成新结果；返回是否保存成功 */
+async function saveQuestionEdit(row) {
+  if (editSaving) return false
+  const body = editBodyRef.value
+  if (!body) return false
+  // 没有实际改动：点勾 / 失焦都直接完成编辑，不产生多余的更新请求
+  if (!dirtyEdit) {
+    cancelQuestionEdit()
+    return true
+  }
+  const markdown = toQuestionMarkdown(body.getHtml())
+  if (!markdown) {
+    ElMessage.warning(t('resources.questions.emptyStem'))
+    return false
+  }
+  editSaving = true
+  try {
+    await updateQuestion(row.id, undefined, undefined, { title: markdown })
+  } catch {
+    return false
+  } finally {
+    editSaving = false
+  }
+  row.title = markdown
+  dirtyEdit = false
+  editingId.value = null
+  ElMessage.success(t('search.updated'))
+  return true
+}
+
+/** 正文有实际改动（打字 / 删除 / 应用格式）时标记为脏 */
+function onEditInput() {
+  dirtyEdit = true
+}
+
+/**
+ * 失焦自动保存并退出编辑（与点「圆圈带勾」同一个结果，没有改动也直接退出）。
+ * 点到行内的勾选 / 编辑按钮或删除按钮时不在这里保存：
+ * 前者由按钮自己的点击逻辑接管，后者本来就要删掉这道题，避免保存请求与删除相互打架。
+ */
+function onEditFocusOut(event) {
+  if (editingId.value === null) return
+  const next = event.relatedTarget
+  if (next instanceof Element) {
+    if (next.closest('.row-open') || next.closest('.row-act')) return
+    if (next.closest('.math-mask')) return
+  }
+  // 公式弹层的输入框 / 遮罩不一定能成为 relatedTarget，弹层打开时一律不退出
+  if (document.querySelector('.math-mask')) return
+  const row = lists.questions.rows.find((item) => item.id === editingId.value)
+  if (row) saveQuestionEdit(row)
+}
+
+/**
+ * 点在编辑区之外时直接保存并退出编辑。
+ * 点不可聚焦的空白区域时浏览器不一定会移走焦点，单靠 focusout 兜不住。
+ */
+function onDocMousedown(event) {
+  if (editingId.value === null) return
+  const target = event.target
+  if (!(target instanceof Element)) return
+  // 行内按钮：勾选自己处理保存，删除本来就会移除题目，避免保存请求与它们打架
+  if (target.closest('.row-open') || target.closest('.row-act')) return
+  // 公式工具条 / 公式弹层 / 划词浮窗：都是编辑辅助，点它们不算离开编辑
+  if (target.closest('.math-bar') || target.closest('.math-mask') || target.closest('.fmt-pop')) return
+  if (editBodyRef.value?.contains(target)) return
+  const row = lists.questions.rows.find((item) => item.id === editingId.value)
+  if (row) saveQuestionEdit(row)
+}
+
+/** Esc：放弃本次编辑，恢复原题干 */
+function cancelQuestionEdit() {
+  dirtyEdit = false
+  editingId.value = null
+}
+
+function onEditKeydown(event) {
+  if (event.key !== 'Escape') return
+  event.preventDefault()
+  cancelQuestionEdit()
+}
+
 /** 我的题目筛选：filters 是下拉里当前选择，appliedFilters 是点击「筛选」后真正生效的条件 */
 const filters = reactive({ bloomType: '', difficulty: '' })
 const appliedFilters = reactive({ bloomType: '', difficulty: '' })
@@ -387,6 +530,8 @@ let loadSeq = 0
 
 async function load(tab, pageNo) {
   if (!loggedIn.value) return
+  // 离开题目标签、或翻页后当前编辑的题目已不在本页时，退出行内编辑，避免编辑态悬空
+  if (tab !== 'questions') editingId.value = null
   const list = lists[tab]
   const seq = (loadSeq += 1)
   loading.value = true
@@ -397,6 +542,9 @@ async function load(tab, pageNo) {
     list.total = Number(page.total) || 0
     list.pageNo = pageNo
     list.loaded = true
+    if (editingId.value !== null && !list.rows.some((row) => row.id === editingId.value)) {
+      editingId.value = null
+    }
   } catch {
     if (seq !== loadSeq) return
     list.rows = []
@@ -547,7 +695,14 @@ watch(
 
 // 首屏直接加载地址栏里的那个标签：从「我的试卷」进编辑页后返回时，
 // activeTab 已经由 query 初始化好，不会触发上面的 watch，必须在这里补一次加载
-onMounted(() => load(activeTab.value, 1))
+onMounted(() => {
+  document.addEventListener('mousedown', onDocMousedown)
+  load(activeTab.value, 1)
+})
+
+onBeforeUnmount(() => {
+  document.removeEventListener('mousedown', onDocMousedown)
+})
 </script>
 
 <style scoped>
@@ -1015,6 +1170,16 @@ onMounted(() => load(activeTab.value, 1))
   word-break: break-word;
 }
 
+/* 题干编辑态：以细描边白底把它从行卡片里抬出来，提示这里可以直接改 */
+.row-stem.is-editing {
+  min-height: 54px;
+  padding: 9px 11px;
+  border: 1px solid rgba(217, 119, 87, 0.45);
+  border-radius: var(--radius-sm);
+  background: var(--c-surface);
+  outline: none;
+}
+
 .row-stem :deep(p) {
   margin: 0 0 10px;
 }
@@ -1110,7 +1275,20 @@ onMounted(() => load(activeTab.value, 1))
   border-color: rgba(217, 119, 87, 0.55);
   background: rgba(217, 119, 87, 0.08);
   color: var(--c-orange);
-  transform: translateX(2px);
+  transform: scale(1.06);
+}
+
+/* 编辑中的铅笔按钮：实底主色，点击即保存并退出编辑 */
+.row-open.is-on {
+  border-color: transparent;
+  background: var(--c-orange);
+  color: #fff;
+}
+
+.row-open.is-on:hover {
+  border-color: transparent;
+  background: var(--c-orange);
+  color: #fff;
 }
 
 /* 删除入口：常态低调，hover 时转成危险色，避免误点 */

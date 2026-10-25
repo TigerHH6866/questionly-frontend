@@ -75,11 +75,12 @@ export function searchQuestions(params) {
 }
 
 /**
- * 修改题目的 AI 分析内容与 / 或答案与 / 或四维元信息与 / 或知识点；不传的参数保持不变。
- * meta: { grade, subject, bloomType, difficulty, knowledgeIds }
+ * 修改题目的题干与 / 或 AI 分析内容与 / 或答案与 / 或四维元信息与 / 或知识点；不传的参数保持不变。
+ * meta: { grade, subject, bloomType, difficulty, knowledgeIds, title }
  */
 export function updateQuestion(id, details, answers, meta) {
   return http.put(`/questions/${id}`, {
+    title: meta?.title,
     details,
     answers,
     grade: meta?.grade,

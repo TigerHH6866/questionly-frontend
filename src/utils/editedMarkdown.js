@@ -22,6 +22,20 @@ turndown.addRule('katex', {
   }
 })
 
+/**
+ * 上下标：面板正文由 renderMarkdown（html:false）渲染，写 <sup> 会被当成普通文字，
+ * 因此这里统一转成行内公式的 ^{} / _{}，再次渲染时仍是标准 KaTeX 公式。
+ * 空标签里的零宽占位会被剪掉，避免存进 details。
+ */
+turndown.addRule('supsub', {
+  filter: ['sup', 'sub'],
+  replacement: (content, node) => {
+    const tex = content.replace(/\u200b/g, '').trim()
+    if (!tex) return ''
+    return node.nodeName === 'SUP' ? `\\(^{${tex}}\\)` : `\\(_{${tex}}\\)`
+  }
+})
+
 /** 面板 HTML -> Markdown */
 export function toEditedMarkdown(html) {
   return turndown.turndown(html || '').trim()
@@ -56,6 +70,17 @@ questionTurndown.addRule('underline', {
 questionTurndown.addRule('underdot', {
   filter: (node) => node.nodeName === 'SPAN' && node.classList?.contains('dot'),
   replacement: (content) => `<span class="dot">${content}</span>`
+})
+
+/** 题干由 renderRichMarkdown（html:true）渲染，上下标直接以 HTML 片段保留即可 */
+questionTurndown.addRule('supsub', {
+  filter: ['sup', 'sub'],
+  replacement: (content, node) => {
+    const text = content.replace(/\u200b/g, '')
+    if (!text) return ''
+    const tag = node.nodeName.toLowerCase()
+    return `<${tag}>${text}</${tag}>`
+  }
 })
 
 questionTurndown.addRule('tableHtml', {

@@ -25,6 +25,12 @@ const routes = [
     name: 'plans',
     component: () => import('@/views/PlansView.vue')
   },
+  {
+    // 使用指南：公开长文页，顶导的「教程」入口指向这里
+    path: '/guide',
+    name: 'guide',
+    component: () => import('@/views/GuideView.vue')
+  },
   // 工作区：所有功能页统一挂在 /app 前缀下
   {
     path: '/app',

@@ -87,17 +87,16 @@
       <span class="qb-meta-time">{{ formatTime(metaCreatedAt) }}</span>
     </div>
 
-    <!-- AI 分析：可编辑正文，与文件解析页一致（v-show 保留切标签前的编辑内容）；
+    <!-- AI 分析：可编辑正文，与文件解析页一致（切回标签时按缓存重绘）；
          只读模式下仅展示，不允许修改 -->
-    <div
-      v-show="tab === 'analysis'"
+    <MathEditArea
+      v-if="tab === 'analysis'"
       ref="analysisRef"
       class="qb-body"
       :class="{ 'is-readonly': readonly }"
-      :contenteditable="readonly ? 'false' : 'true'"
-      spellcheck="false"
+      :editable="!readonly"
       @input="onAnalysisInput"
-    ></div>
+    />
 
     <!-- 答案：默认给 AI 解题入口，生成后转为可编辑正文 -->
     <template v-if="tab === 'answer'">
@@ -111,15 +110,14 @@
           {{ t('process.aiSolve') }}
         </button>
       </div>
-      <div
+      <MathEditArea
         v-else
         ref="answerRef"
         class="qb-body"
         :class="{ 'is-readonly': readonly }"
-        :contenteditable="readonly ? 'false' : 'true'"
-        spellcheck="false"
+        :editable="!readonly"
         @input="onAnswerInput"
-      ></div>
+      />
     </template>
 
     <!-- 知识点关联：已入库题目直接读写绑定关系，随底部保存一起提交；
@@ -175,6 +173,7 @@ import {
   updateQuestion
 } from '@/api/question'
 import KnowledgePicker from '@/components/KnowledgePicker.vue'
+import MathEditArea from '@/components/MathEditArea.vue'
 import { renderMarkdown } from '@/utils/markdown'
 import { hasQuestionImage, snapshotQuestion } from '@/utils/questionSnapshot'
 import {
@@ -231,18 +230,14 @@ const knowledgeItems = ref([])
 const knowledgeLoading = ref(false)
 let knowledgeLoaded = false
 
-function paint(el, html) {
-  if (el) el.innerHTML = html
-}
-
 function onAnalysisInput() {
   const el = analysisRef.value
-  if (el) analysisHtml = el.innerHTML
+  if (el) analysisHtml = el.getHtml()
 }
 
 function onAnswerInput() {
   const el = answerRef.value
-  if (el) answerHtml = el.innerHTML
+  if (el) answerHtml = el.getHtml()
 }
 
 /** 打开面板即拉取 AI 分析正文 */
@@ -265,7 +260,7 @@ async function loadAnalysis() {
   } finally {
     loading.value = false
     await nextTick()
-    paint(analysisRef.value, analysisHtml)
+    analysisRef.value?.paint(analysisHtml)
   }
 }
 
@@ -283,18 +278,21 @@ async function loadAnswer() {
   }
 }
 
-/** 切换面板标签 */
+/** 切换面板标签：正文按缓存重绘，切回时不丢改动 */
 async function switchTab(next) {
   if (tab.value === next) return
   tab.value = next
-  if (next === 'answer') {
+  if (next === 'analysis') {
+    await nextTick()
+    analysisRef.value?.paint(analysisHtml)
+  } else if (next === 'answer') {
     if (!answerLoaded) {
       solving.value = true
       await loadAnswer()
       solving.value = false
     }
     await nextTick()
-    paint(answerRef.value, answerHtml)
+    answerRef.value?.paint(answerHtml)
   } else if (next === 'knowledge' && props.readonly) {
     loadKnowledgeView()
   }
@@ -345,7 +343,7 @@ async function generateAnswer() {
   }
   // 等空态切到正文节点之后再写入，避免 ref 尚不存在导致内容丢失
   await nextTick()
-  paint(answerRef.value, answerHtml)
+  answerRef.value?.paint(answerHtml)
 }
 
 /** 内嵌选择器的勾选先暂存，随底部保存一起提交 */
@@ -357,7 +355,9 @@ function onKnowledgeSelected(items) {
 /** 保存：分析正文、答案与知识点随题目一起提交 */
 async function save() {
   if (busy.value) return
-  const details = analysisRef.value ? toEditedMarkdown(analysisRef.value.innerHTML) : ''
+  // 分析正文可能因切到答案 / 知识点标签而未挂载，此时用输入时缓存的那一份
+  const analysisHtmlNow = analysisRef.value ? analysisRef.value.getHtml() : analysisHtml
+  const details = toEditedMarkdown(analysisHtmlNow)
   if (!details) {
     ElMessage.warning(t('search.saveEditEmpty'))
     return
@@ -365,7 +365,7 @@ async function save() {
 
   const answers =
     answerLoaded && hasAnswer.value && answerRef.value
-      ? toEditedMarkdown(answerRef.value.innerHTML)
+      ? toEditedMarkdown(answerRef.value.getHtml())
       : undefined
 
   saving.value = true

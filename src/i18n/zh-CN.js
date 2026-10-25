@@ -2,11 +2,11 @@ export default {
   app: {
     name: '妙 题'
   },
-  /* 落地页（公开主页，与工作区共用一套设计令牌） */
+  /* 落地页（公开主页，与工作台共用一套设计令牌） */
   landing: {
-    nav: { workspace: '工作区', pricing: '定价', guide: '教程' },
+    nav: { workspace: '工作台', pricing: '定价', guide: '指南' },
     login: '登录',
-    account: { workspace: '进入工作区', settings: '设置', logout: '退出登录' },
+    account: { workspace: '进入工作台', settings: '设置', logout: '退出登录' },
     cta: '开始使用',
     hero: {
       eyebrow: '教师的私有化试题工作台',
@@ -14,7 +14,7 @@ export default {
       sub: '上传 PDF、Word 或照片，AI 自动识别题干、选项、公式、表格与插图，分析学科、年级、知识点与考察能力；用自然语言就能检索，可自由组卷、编排讲义。',
       secondary: '看看能做什么',
       play: '播放演示',
-      videoHint: '演示视频准备中，可先进入工作区体验'
+      videoHint: '演示视频准备中，可先进入工作台体验'
     },
     features: {
       eyebrow: '两大核心能力',
@@ -88,8 +88,16 @@ export default {
       title: '隐私政策'
     }
   },
+  /* 使用指南页：正文改为 src/guide 下的 Markdown 文件承载，这里只留页面框架文案 */
+  guide: {
+    eyebrow: '使用指南',
+    title: '秒题（Questionly）使用指南',
+    sub: '从导入试卷到成卷导出，五个部分讲清秒题（Questionly）的完整使用流程。',
+    toc: '目录',
+    back: '返回首页'
+  },
   nav: {
-    section: '工作区',
+    section: '工作台',
     import: 'AI录题',
     recent: '近期文件',
     search: '搜索题库',
@@ -136,7 +144,8 @@ export default {
       total: '共 {total} 道题',
       empty: '题库里还没有题目，先在「导入新文件」里分析入库',
       needLogin: '登录后可查看自己的题目',
-      detail: '查看详情',
+      edit: '编辑',
+      emptyStem: '题干不能为空',
       stem: '题干',
       all: '全部',
       filter: '筛选',
@@ -239,6 +248,16 @@ export default {
     fmtDot: '着重号',
     fmtItalic: '斜体',
     fmtBold: '加粗'
+  },
+  mathEdit: {
+    insert: '插入公式',
+    insertTitle: '插入公式',
+    editTitle: '编辑公式',
+    placeholder: '输入 LaTeX，如 \\frac{1}{2}、x^{2}、H_{2}O、\\ce{CO2}',
+    previewEmpty: '输入公式后在此预览',
+    hint: 'Enter 插入 · Shift+Enter 换行 · Esc 取消；双击已有公式可再次编辑',
+    sup: '上标',
+    sub: '下标'
   },
   common: {
     confirm: '确定',

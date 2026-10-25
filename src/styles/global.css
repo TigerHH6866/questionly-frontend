@@ -288,6 +288,13 @@ button {
   font-family: var(--font-heading);
 }
 
+/* 上下标：化学式（H₂O）、物理单位（m²）等与正文保持同一行高，不撑开行距 */
+sup,
+sub {
+  font-size: 0.72em;
+  line-height: 0;
+}
+
 /* 题库题干中的连续多图：与文件解析页一致，2 图两列、3 图三列、4 图及以上每行两张 */
 .md-image-grid {
   display: grid;

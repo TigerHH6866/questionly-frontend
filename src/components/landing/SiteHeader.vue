@@ -12,9 +12,7 @@
         <nav class="head-nav">
           <router-link to="/app" class="nav-link">{{ t('landing.nav.workspace') }}</router-link>
           <router-link to="/plans" class="nav-link">{{ t('landing.nav.pricing') }}</router-link>
-          <button type="button" class="nav-link" @click="goSection('guide')">
-            {{ t('landing.nav.guide') }}
-          </button>
+          <router-link to="/guide" class="nav-link">{{ t('landing.nav.guide') }}</router-link>
         </nav>
 
         <div class="account-wrap">
@@ -88,13 +86,11 @@
 
 <script setup>
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
-import { pendingAnchor } from '@/utils/anchor'
 import { clearAuth, currentUser, isLoggedIn } from '@/utils/auth'
 
 const { t } = useI18n()
-const route = useRoute()
 const router = useRouter()
 
 const menuOpen = ref(false)
@@ -116,17 +112,6 @@ function goWorkspace() {
 function signOut() {
   clearAuth()
   menuOpen.value = false
-}
-
-/** 区块跳转：本页直接滚动；其它页面先回落地页再定位（目标区块由 utils/anchor 暂存，URL 不带 #） */
-function goSection(id) {
-  menuOpen.value = false
-  if (route.path === '/') {
-    document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-    return
-  }
-  pendingAnchor.value = id
-  router.push('/')
 }
 
 function onDocumentClick(event) {

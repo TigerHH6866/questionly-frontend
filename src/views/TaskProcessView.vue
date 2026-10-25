@@ -74,11 +74,22 @@
                     :aria-label="q.index === editingIndex ? t('process.editDone') : t('process.edit')"
                     @click="q.index === editingIndex ? stopEdit() : startEdit(q.index)"
                   >
-                    <svg viewBox="0 0 24 24" width="14" height="14" fill="none" aria-hidden="true">
+                    <svg v-if="q.index !== editingIndex" viewBox="0 0 24 24" width="14" height="14" fill="none" aria-hidden="true">
                       <path
                         d="M12 20h9M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5Z"
                         stroke="currentColor"
                         stroke-width="1.7"
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                      />
+                    </svg>
+                    <!-- 编辑中：圆圈带勾，再点一次即完成（没有改动也直接退出） -->
+                    <svg v-else viewBox="0 0 24 24" width="14" height="14" fill="none" aria-hidden="true">
+                      <circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="1.7" />
+                      <path
+                        d="m8 12.4 2.7 2.7 5.5-5.6"
+                        stroke="currentColor"
+                        stroke-width="1.9"
                         stroke-linecap="round"
                         stroke-linejoin="round"
                       />
@@ -144,17 +155,16 @@
                 class="q-body"
                 v-html="q.html"
               ></div>
-              <div
+              <MathEditArea
                 v-else
                 :ref="setEditBody"
                 class="q-body q-editing"
-                contenteditable="true"
-                spellcheck="false"
                 @input="onEditInput"
+                @focusout="onEditFocusOut"
                 @keydown="onEditKeydown"
                 @mouseup="onEditMouseup"
                 @keyup="onEditKeyup"
-              ></div>
+              />
             </template>
             <div v-else class="q-skeleton" aria-hidden="true"></div>
           </section>
@@ -249,14 +259,12 @@
         </div>
 
         <!-- AI 分析：可编辑的分析正文 -->
-        <div
+        <MathEditArea
           v-if="panelTab === 'analysis'"
           ref="panelBodyRef"
           class="panel-body"
-          contenteditable="true"
-          spellcheck="false"
           @input="onPanelInput"
-        ></div>
+        />
 
         <!-- 答案分析：默认空态给 AI 解题入口，生成后转为可编辑正文 -->
         <template v-else-if="panelTab === 'answer'">
@@ -267,14 +275,12 @@
               {{ solvingIndex >= 0 ? t('process.answerSolving') : t('process.aiSolve') }}
             </button>
           </div>
-          <div
+          <MathEditArea
             v-else
             ref="answerBodyRef"
             class="panel-body"
-            contenteditable="true"
-            spellcheck="false"
             @input="onAnswerInput"
-          ></div>
+          />
         </template>
 
         <!-- 知识点关联：独立标签，学段/学科按 AI 分析自动装填，知识点直接平铺可选 -->
@@ -368,6 +374,7 @@ import {
 import { toEditedMarkdown, toQuestionMarkdown } from '@/utils/editedMarkdown'
 import { saveProcessState, getProcessState } from '@/utils/importSession'
 import KnowledgePicker from '@/components/KnowledgePicker.vue'
+import MathEditArea from '@/components/MathEditArea.vue'
 
 const props = defineProps({ id: { type: String, required: true } })
 
@@ -660,7 +667,7 @@ function knowledgeIdsOf(index) {
 
 /** 正在编辑的题号（稳定 ocrIndex），-1 表示没有题目处于编辑态 */
 const editingIndex = ref(-1)
-/** 编辑态正文节点：用户就在这个节点里改，手动写 innerHTML，不挂 v-html 绑定 */
+/** 编辑态正文组件实例（MathEditArea）：手动 paint 写入正文，不挂 v-html 绑定 */
 let editBodyRef = null
 /** 本次编辑是否真的改过内容，退出编辑时据此决定要不要落快照 */
 let dirtyEdit = false
@@ -815,12 +822,12 @@ function showPanel(index, markdown, detail) {
 }
 
 /**
- * 面板正文手动写入 innerHTML，不挂 v-html 绑定。
+ * 面板正文由 MathEditArea 手动写入，不挂 v-html 绑定。
  * 用户就在这个节点里编辑，而 v-html 会在父组件任意一次重渲染时重新赋值并清空改动。
  */
 function syncPanelBody() {
   const el = panelBodyRef.value
-  if (el && panelIndex.value >= 0) el.innerHTML = panelHtml.value
+  if (el && panelIndex.value >= 0) el.paint(panelHtml.value)
 }
 
 function closePanel() {
@@ -834,7 +841,7 @@ function closePanel() {
 function onPanelInput() {
   const el = panelBodyRef.value
   if (!el || panelIndex.value < 0) return
-  editCache.set(panelIndex.value, el.innerHTML)
+  editCache.set(panelIndex.value, el.getHtml())
 }
 
 /** 切换面板标签：AI 分析 / 答案分析 / 知识点关联 */
@@ -870,12 +877,12 @@ async function openAnswer() {
   syncAnswerBody()
 }
 
-/** 答案正文手动写入 innerHTML（与 AI 分析面板同策略，避免重渲染打断光标） */
+/** 答案正文由 MathEditArea 手动写入（与 AI 分析面板同策略，避免重渲染打断光标） */
 function syncAnswerBody() {
   const el = answerBodyRef.value
   const index = panelIndex.value
   if (!el || index < 0) return
-  el.innerHTML = answerEdit.has(index) ? answerEdit.get(index) : renderMarkdown(answerCache.get(index) || '')
+  el.paint(answerEdit.has(index) ? answerEdit.get(index) : renderMarkdown(answerCache.get(index) || ''))
 }
 
 /** 答案面板里就地编辑：只写缓存 */
@@ -883,7 +890,7 @@ function onAnswerInput() {
   const el = answerBodyRef.value
   const index = panelIndex.value
   if (!el || index < 0) return
-  answerEdit.set(index, el.innerHTML)
+  answerEdit.set(index, el.getHtml())
 }
 
 /** AI 解题：按 biz_type=answer 调 LLM 生成答案并展示 */
@@ -1137,9 +1144,14 @@ function unwrap(el) {
   parent.removeChild(el)
 }
 
-/** 编辑态正文节点的函数式 ref：放在 v-for 里用模板 ref 会收集成数组 */
+/**
+ * 编辑态正文节点的函数式 ref：放在 v-for 里用模板 ref 会收集成数组。
+ * 只接受非空实例——切换编辑题时，Vue 在同一帧里可能「先挂载新题、再注销旧题」，
+ * 若把注销时的 null 也写进来，最后一次调用会把引用清空，
+ * 新题的正文就不会被 paint，看起来就是题目消失了。
+ */
 function setEditBody(el) {
-  editBodyRef = el
+  if (el) editBodyRef = el
 }
 
 /**
@@ -1168,7 +1180,7 @@ function commitEdit() {
   if (index < 0 || !dirtyEdit || !editBodyRef) return
   const question = questionOf(index)
   if (!question) return
-  const html = editBodyRef.innerHTML
+  const html = editBodyRef.getHtml()
   dirtyEdit = false
   if (hasVisibleContent(html)) {
     question.editedHtml = html
@@ -1204,7 +1216,8 @@ async function startEdit(index) {
   if (editBodyRef) {
     // 关掉 CSS 化的加粗 / 斜体，让 execCommand 产出 <b> / <i>，便于反转 Markdown 与 LaTeX
     document.execCommand('styleWithCSS', false, false)
-    editBodyRef.innerHTML = question.html
+    // paint 内部会把公式标成不可编辑原子，光标与退格都不会破坏 KaTeX 结构
+    editBodyRef.paint(question.html)
     editBodyRef.focus()
     // 手动写入的 innerHTML 不经过 Vue 更新，编辑态也要重新量一次选项组
     layoutOptionGrids()
@@ -1217,6 +1230,23 @@ function stopEdit() {
   commitEdit()
   editingIndex.value = -1
   hideSelPop()
+}
+
+/**
+ * 失焦自动保存并退出编辑（与点「圆圈带勾」同一个结果，没有改动也直接退出）。
+ * 点到「完成」按钮、公式编辑弹层时由它们自己处理，这里不抢先退出，
+ * 否则按钮的点击会落在「已经退出编辑」的状态上，弹层也会因编辑区卸载而失效。
+ */
+function onEditFocusOut(event) {
+  if (editingIndex.value < 0) return
+  const next = event.relatedTarget
+  if (next instanceof Element) {
+    if (next.closest('.q-tool.is-on')) return
+    if (next.closest('.math-mask')) return
+  }
+  // 公式弹层的输入框 / 遮罩不一定能成为 relatedTarget，弹层打开时一律不退出
+  if (document.querySelector('.math-mask')) return
+  stopEdit()
 }
 
 /** 划词浮窗：记录选区与位置，点击浮窗按钮后据此恢复 */
@@ -1314,7 +1344,7 @@ function applyDot() {
  * 题号标识沿用被并入的下一题，页面序号按数组位次自动重排。
  */
 function splitAtCursor() {
-  const body = editBodyRef
+  const body = editBodyRef?.el
   const index = editingIndex.value
   const sel = window.getSelection()
   if (!body || index < 0 || !sel || sel.rangeCount === 0) return
@@ -1621,7 +1651,7 @@ async function load() {
   loadImported()
 }
 
-/** 编辑态键盘：Shift+Enter 把光标之后的正文拆给下一题 */
+/** 编辑态键盘：Shift+Enter 把光标之后的正文拆给下一题（公式边界删除由 MathEditArea 处理） */
 function onEditKeydown(event) {
   if (event.key === 'Enter' && event.shiftKey) {
     event.preventDefault()
@@ -1638,13 +1668,19 @@ function onEditKeyup() {
   updateSelPop()
 }
 
-/** 点在编辑区与浮窗之外时收起浮窗 */
+/**
+ * 点在编辑区之外时收起浮窗，并自动保存、退出编辑（与点「圆圈带勾」同一个结果）。
+ * 点「完成」按钮、公式工具条与公式弹层时由它们自己处理，不在这里抢先退出。
+ */
 function onDocMousedown(event) {
   if (editingIndex.value < 0) return
   const target = event.target
   if (target?.closest?.('.fmt-pop')) return
   if (editBodyRef?.contains(target)) return
   hideSelPop()
+  if (target?.closest?.('.q-tool.is-on')) return
+  if (target?.closest?.('.math-bar') || target?.closest?.('.math-mask')) return
+  stopEdit()
 }
 
 /** 滚动后浮窗位置已失效，直接收起 */

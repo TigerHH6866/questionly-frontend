@@ -153,6 +153,7 @@
         <div
           ref="sheetRef"
           class="sheet"
+          data-math-edit
           :style="sheetStyle"
           contenteditable="true"
           spellcheck="false"
@@ -318,6 +319,9 @@
         {{ exporting ? t('compose.options.exporting') : t('compose.options.exportWord') }}
       </button>
     </aside>
+
+    <!-- 公式工具条 + 弹层：光标在纸面正文内时出现，插入的公式节点与其他页面完全一致 -->
+    <MathEditBar />
   </div>
 </template>
 
@@ -329,8 +333,10 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { createPaper, exportPaperDocx, exportPaperPdf, getPaper, updatePaper } from '@/api/paper'
 import { searchQuestions } from '@/api/question'
 import QuestionBankPanel from '@/components/QuestionBankPanel.vue'
+import MathEditBar from '@/components/MathEditBar.vue'
 import { recognizeAudio } from '@/api/asr'
 import { renderRichMarkdown } from '@/utils/markdown'
+import { protectMath } from '@/utils/mathEdit'
 import { clipSourceName } from '@/utils/questionMeta'
 import { isLoggedIn } from '@/utils/auth'
 import { VoiceRecorder } from '@/utils/recorder'
@@ -548,7 +554,11 @@ async function load() {
     const paper = await getPaper(props.id)
     title.value = paper.title || ''
     await nextTick()
-    if (sheetRef.value) sheetRef.value.innerHTML = paper.content || ''
+    if (sheetRef.value) {
+      sheetRef.value.innerHTML = paper.content || ''
+      // 公式节点统一标成不可编辑原子，并补上 data-tex（双击可再次编辑）
+      protectMath(sheetRef.value)
+    }
     ensurePageFrame()
   } catch {
     ElMessage.error(t('compose.loadFailed'))
@@ -865,6 +875,7 @@ function insert(hit) {
   const block = document.createElement('div')
   block.className = 'q-block'
   block.innerHTML = hit.html
+  protectMath(block)
 
   const range = activeRange()
   const target = range && sheet.contains(range.commonAncestorContainer) ? blockOf(range.startContainer) : null

@@ -87,6 +87,14 @@ export default {
       title: 'Privacy Policy'
     }
   },
+  /* Guide page: the body lives in the Markdown under src/guide, so only the page chrome stays here */
+  guide: {
+    eyebrow: 'Guide',
+    title: 'Questionly User Guide',
+    sub: 'A five-part walkthrough of Questionly, from uploading a paper to exporting the finished exam.',
+    toc: 'Contents',
+    back: 'Back to home'
+  },
   nav: {
     section: 'Workspace',
     import: 'Import New File',
@@ -135,7 +143,8 @@ export default {
       total: '{total} questions in total',
       empty: 'No questions yet — import a file and save them to the bank',
       needLogin: 'Sign in to view your questions',
-      detail: 'View details',
+      edit: 'Edit',
+      emptyStem: 'The question stem cannot be empty',
       stem: 'Question',
       all: 'All',
       filter: 'Filter',
@@ -238,6 +247,16 @@ export default {
     fmtDot: 'Dot',
     fmtItalic: 'Italic',
     fmtBold: 'Bold'
+  },
+  mathEdit: {
+    insert: 'Insert formula',
+    insertTitle: 'Insert formula',
+    editTitle: 'Edit formula',
+    placeholder: 'LaTeX, e.g. \\frac{1}{2}, x^{2}, H_{2}O, \\ce{CO2}',
+    previewEmpty: 'Preview appears here',
+    hint: 'Enter to insert · Shift+Enter for a new line · Esc to cancel; double-click a formula to edit it',
+    sup: 'Superscript',
+    sub: 'Subscript'
   },
   common: {
     confirm: 'Confirm',
