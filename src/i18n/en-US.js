@@ -12,9 +12,7 @@ export default {
       eyebrow: 'AI exam parsing & paper building',
       title: 'Turn a paper exam into a searchable question bank',
       sub: 'Upload a PDF, a Word file or a photo: the AI extracts stems, choices, formulas, tables and figures, then works out the subject, grade, knowledge points and skills being tested. Search it in plain language, and lay the questions you pick into an A4 paper.',
-      secondary: 'See what it does',
-      play: 'Play demo',
-      videoHint: 'The demo video is on the way — try the workspace first'
+      secondary: 'See what it does'
     },
     features: {
       eyebrow: 'Two core engines',
@@ -178,6 +176,8 @@ export default {
     waiting: 'Recognizing document…',
     failed: 'Recognition failed, please retry',
     timeout: 'Recognition timed out, please retry',
+    /* Same file already parsed: backend reuses the existing task and charges nothing */
+    duplicate: 'This file was already parsed — we opened the earlier result and charged no extra credits',
     retry: 'Retry',
     choose: 'Choose file',
     remove: 'Remove file',
@@ -211,6 +211,9 @@ export default {
     renamePlaceholder: 'File name',
     renameSaved: 'File name updated',
     renameEmpty: 'File name cannot be empty',
+    downloadWord: 'Download Word',
+    exporting: 'Generating…',
+    downloadStarted: 'Word download started',
     questionLabel: 'Question {n}',
     empty: 'No question detected',
     analyze: 'AI Analyze',
@@ -371,6 +374,25 @@ export default {
   /* 我的订单（套餐名复用 landing.pricing 里的 name，这里只放列表与状态文案） */
   orders: {
     needLogin: 'Sign in to view your orders',
+    tabs: {
+      consumption: 'Usage',
+      purchases: 'Purchases'
+    },
+    usage: {
+      title: 'Current plan balance',
+      creditsLeft: 'Credits left',
+      creditsUsed: 'Credits used',
+      questionsLeft: 'Questions left',
+      questionsUsed: 'Questions used'
+    },
+    consumption: {
+      empty: 'No parsing records yet — upload a file to get started',
+      total: '{total} parsing records',
+      time: 'Parsed',
+      file: 'File',
+      image: 'Image',
+      cost: '{n} credits'
+    },
     empty: 'No orders yet — pick a plan from the account menu',
     total: '{total} orders in total',
     repay: 'Continue payment',

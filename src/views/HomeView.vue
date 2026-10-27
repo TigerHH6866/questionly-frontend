@@ -175,6 +175,7 @@
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
+import { ElMessage } from 'element-plus'
 import { createOcrTask, getOcrTask } from '@/api/ocr'
 import { isLoggedIn } from '@/utils/auth'
 import { checkUpload } from '@/utils/uploadLimits'
@@ -324,6 +325,16 @@ async function start() {
   pollCount = 0
   try {
     const task = await createOcrTask(file.value)
+    if (task.duplicate) {
+      // 同一份文件已解析过：后端复用了已有任务，没有新建记录、也没有再次扣积分
+      ElMessage.info(t('import.duplicate'))
+      if (task.status === 'SUCCESS') {
+        router.push(`/app/tasks/${task.id}/process`)
+      } else {
+        poll(task.id)
+      }
+      return
+    }
     // 新任务已入库，广播一次让侧栏「近期文件」立刻刷新，新文件出现在列表首位
     window.dispatchEvent(new CustomEvent('questionly:recent-refresh'))
     // 解析按次扣积分，同步账号胶囊里的余额

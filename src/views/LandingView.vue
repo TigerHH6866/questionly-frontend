@@ -16,36 +16,10 @@
           </button>
         </div>
 
+        <!-- 第一屏大图：静态展示首页主视觉 -->
         <div class="shot reveal">
           <div class="shot-frame">
-            <!-- src 在点击播放时才由脚本赋值：写成静态属性会让 Vite 在构建期解析这个不存在的文件并整块报错 -->
-            <video
-              v-show="playing"
-              ref="videoEl"
-              class="shot-media"
-              controls
-              playsinline
-              preload="none"
-              @error="onVideoError"
-            ></video>
-            <img
-              v-show="!playing"
-              class="shot-media"
-              :src="poster"
-              :alt="t('landing.hero.play')"
-              @error="hasPoster = false"
-            />
-            <span v-if="!hasPoster" class="shot-fallback" aria-hidden="true">
-              <img src="/logo.png" alt="" width="56" height="56" />
-            </span>
-            <button v-if="!playing" type="button" class="shot-play" @click="playDemo">
-              <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
-                <path d="M8.4 5.4 18.6 12 8.4 18.6V5.4Z" fill="currentColor" />
-              </svg>
-              <span>{{ t('landing.hero.play') }}</span>
-            </button>
-            <!-- 演示视频尚未上传时给出提示，把 frontend/public/demo.mp4 放进去即可播放 -->
-            <p v-if="missingVideo" class="shot-note">{{ t('landing.hero.videoHint') }}</p>
+            <img class="shot-media" src="/hero-home.jpg" :alt="t('landing.hero.title')" />
           </div>
         </div>
       </div>
@@ -204,43 +178,13 @@
 </template>
 
 <script setup>
-import { nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
+import { nextTick, onBeforeUnmount, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import SiteHeader from '@/components/landing/SiteHeader.vue'
 import SiteFooter from '@/components/landing/SiteFooter.vue'
 import { pendingAnchor } from '@/utils/anchor'
 
 const { t } = useI18n()
-
-/** hero 演示视频：真实录屏放 frontend/public/demo.mp4 即可播放，缺失时退回海报图 */
-const DEMO_SRC = '/demo.mp4'
-const videoEl = ref(null)
-const playing = ref(false)
-const missingVideo = ref(false)
-const hasPoster = ref(true)
-
-/** 海报图走平台文生图接口（唯一允许的图片源），失败时自动退回渐变底 + logo */
-const POSTER_PROMPT =
-  'isometric editorial illustration of a stack of exam papers being scanned by a warm orange light beam, floating geometry formulas and a magnifier icon, cream paper background, soft long shadows, clean modern product marketing visual, high detail'
-const poster = `https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=${encodeURIComponent(POSTER_PROMPT)}&image_size=landscape_16_9`
-
-async function playDemo() {
-  const el = videoEl.value
-  if (!el) return
-  if (!el.getAttribute('src')) el.setAttribute('src', DEMO_SRC)
-  playing.value = true
-  await nextTick()
-  try {
-    await el.play()
-  } catch {
-    onVideoError()
-  }
-}
-
-function onVideoError() {
-  playing.value = false
-  missingVideo.value = true
-}
 
 function scrollTo(id) {
   document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
@@ -440,54 +384,6 @@ onBeforeUnmount(() => observer?.disconnect())
   width: 100%;
   height: 100%;
   object-fit: cover;
-}
-
-.shot-fallback {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 100%;
-  height: 100%;
-}
-
-.shot-play {
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  display: inline-flex;
-  align-items: center;
-  gap: 9px;
-  padding: 13px 24px 13px 20px;
-  border: 0;
-  border-radius: 999px;
-  background: rgba(250, 249, 245, 0.94);
-  font-family: var(--font-heading);
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--c-dark);
-  cursor: pointer;
-  transform: translate(-50%, -50%);
-  box-shadow: 0 12px 30px -12px rgba(20, 20, 19, 0.55);
-  transition: transform 0.22s var(--ease-out), background 0.22s var(--ease-soft);
-}
-
-.shot-play:hover {
-  transform: translate(-50%, -50%) scale(1.04);
-  background: var(--c-light);
-}
-
-.shot-note {
-  position: absolute;
-  bottom: 16px;
-  left: 50%;
-  margin: 0;
-  padding: 7px 14px;
-  border-radius: 999px;
-  background: rgba(20, 20, 19, 0.62);
-  font-family: var(--font-heading);
-  font-size: 12.5px;
-  color: var(--c-on-accent);
-  transform: translateX(-50%);
 }
 
 /* ---------- 屏与屏之间的底色分界 ---------- */

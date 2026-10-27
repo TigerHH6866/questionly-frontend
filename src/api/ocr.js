@@ -42,3 +42,23 @@ export function renameOcrTask(id, fileName) {
 export function saveTaskDraft(id, draft) {
   return http.put(`/ocr/tasks/${id}/draft`, { draft })
 }
+
+/**
+ * 导出 Word：html 为页面当前渲染的整份正文（含题干编辑快照），
+ * 后端用 pandoc 转成 docx，公式为 Word 原生公式、图片内嵌。
+ */
+export async function exportTaskDocx(id, html) {
+  const blob = await http.post(`/ocr/tasks/${id}/docx`, { html }, { responseType: 'blob', timeout: 180000 })
+  // 业务异常时后端返回 JSON，响应类型为 blob 时会被包成 Blob，这里还原错误文案
+  if (blob && blob.type && blob.type.includes('application/json')) {
+    const text = await blob.text()
+    let msg = 'Word 生成失败，请稍后重试'
+    try {
+      msg = JSON.parse(text).msg || msg
+    } catch {
+      // 解析失败时保留默认文案
+    }
+    throw Object.assign(new Error(msg), { apiError: true })
+  }
+  return blob
+}

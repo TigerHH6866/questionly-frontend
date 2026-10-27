@@ -10,11 +10,9 @@ export default {
     cta: '开始使用',
     hero: {
       eyebrow: '教师的私有化试题工作台',
-      title: '把试卷变成会思考可检索的结构化题库',
+      title: '把试卷变成会思考的题库',
       sub: '上传 PDF、Word 或照片，AI 自动识别题干、选项、公式、表格与插图，分析学科、年级、知识点与考察能力；用自然语言就能检索，可自由组卷、编排讲义。',
-      secondary: '看看能做什么',
-      play: '播放演示',
-      videoHint: '演示视频准备中，可先进入工作台体验'
+      secondary: '看看能做什么'
     },
     features: {
       eyebrow: '两大核心能力',
@@ -179,6 +177,8 @@ export default {
     waiting: '正在识别处理文档…',
     failed: '识别失败，请重试',
     timeout: '识别超时，请重试',
+    /* 同一份文件已经解析过：后端复用旧任务，不再重复扣积分 */
+    duplicate: '这份文件已经解析过，已为你直接打开，未重复扣积分',
     retry: '重试',
     choose: '选择文件',
     remove: '删除文件',
@@ -212,6 +212,9 @@ export default {
     renamePlaceholder: '输入文件名',
     renameSaved: '文件名已更新',
     renameEmpty: '文件名不能为空',
+    downloadWord: '下载 Word',
+    exporting: '生成中…',
+    downloadStarted: 'Word 已开始下载',
     questionLabel: '第 {n} 题',
     empty: '未识别到题目',
     analyze: 'AI 分析入库',
@@ -372,6 +375,25 @@ export default {
   /* 我的订单（套餐名复用 landing.pricing 里的 name，这里只放列表与状态文案） */
   orders: {
     needLogin: '登录后可查看自己的订单',
+    tabs: {
+      consumption: '消费记录',
+      purchases: '购买记录'
+    },
+    usage: {
+      title: '当前套餐余额',
+      creditsLeft: '剩余积分',
+      creditsUsed: '已使用积分',
+      questionsLeft: '剩余题库',
+      questionsUsed: '已使用题库'
+    },
+    consumption: {
+      empty: '还没有解析记录，去上传一份文件吧',
+      total: '共 {total} 条解析记录',
+      time: '解析时间',
+      file: '文件',
+      image: '图片',
+      cost: '{n} 积分'
+    },
     empty: '还没有订单，去账号菜单里选一个套餐吧',
     total: '共 {total} 笔订单',
     repay: '继续支付',

@@ -43,6 +43,23 @@
             />
           </template>
           <span v-else class="doc" :title="t('process.renameHint')" @click="startRename">{{ docName }}</span>
+          <button
+            class="docx-btn"
+            type="button"
+            :disabled="exporting || !questions.length"
+            @click="exportWord"
+          >
+            <svg viewBox="0 0 24 24" width="13" height="13" fill="none" aria-hidden="true">
+              <path
+                d="M12 4v10m0 0 4-4m-4 4-4-4M5 20h14"
+                stroke="currentColor"
+                stroke-width="1.8"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              />
+            </svg>
+            <span>{{ exporting ? t('process.exporting') : t('process.downloadWord') }}</span>
+          </button>
           <span class="counter">{{ t('process.total', { total: questions.length }) }}</span>
         </header>
       </Teleport>
@@ -340,7 +357,7 @@ import { computed, inject, nextTick, onBeforeUnmount, onMounted, onUpdated, reac
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { getTaskResult, renameOcrTask, saveTaskDraft } from '@/api/ocr'
+import { getTaskResult, renameOcrTask, saveTaskDraft, exportTaskDocx } from '@/api/ocr'
 import {
   analyzeQuestion,
   saveQuestion,
@@ -372,6 +389,7 @@ import {
   parseQuestionMeta
 } from '@/utils/questionMeta'
 import { toEditedMarkdown, toQuestionMarkdown } from '@/utils/editedMarkdown'
+import { toWordHtml } from '@/utils/docxExport'
 import { saveProcessState, getProcessState } from '@/utils/importSession'
 import KnowledgePicker from '@/components/KnowledgePicker.vue'
 import MathEditArea from '@/components/MathEditArea.vue'
@@ -410,6 +428,7 @@ const renaming = ref(false)
 const nameDraft = ref('')
 const nameInput = ref(null)
 const savingName = ref(false)
+const exporting = ref(false)
 
 /** 点击文件名进入编辑态，自动聚焦并全选，便于直接覆盖输入 */
 async function startRename() {
@@ -448,6 +467,33 @@ async function commitRename() {
     savingName.value = false
   }
 }
+/**
+ * 导出 Word：把页面当前的题目正文（含题干编辑快照、公式、图片）交给后端转 docx。
+ * 导出前先把正在编辑的正文写回快照，避免刚输入的内容没被带出去。
+ */
+async function exportWord() {
+  if (exporting.value || !questions.value.length) return
+  commitEdit()
+  exporting.value = true
+  try {
+    const html = questions.value.map((question) => htmlOf(question)).join('')
+    const blob = await exportTaskDocx(props.id, toWordHtml(html))
+    const base = (docName.value || '试题').replace(/\.[^.]+$/, '')
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = `${base}.docx`
+    link.click()
+    URL.revokeObjectURL(url)
+    ElMessage.success(t('process.downloadStarted'))
+  } catch (e) {
+    // 网络错误已由 axios 拦截器提示，这里只补充后端返回的业务文案
+    if (e?.apiError) ElMessage.error(e.message)
+  } finally {
+    exporting.value = false
+  }
+}
+
 /** 全文作为单一题目兜底（未识别到题号）时，不显示题号标签 */
 const single = ref(true)
 
@@ -1785,6 +1831,36 @@ onBeforeUnmount(() => {
 }
 
 /* 「共 N 题」走无衬线栈 + 等宽数字，避免数字宽度变化时右侧对不齐 */
+/* 下载 Word：与题量统计一起贴在标题卡片右侧，胶囊描边按钮 */
+.docx-btn {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 28px;
+  padding: 0 11px;
+  border: 1px solid var(--c-border);
+  border-radius: 999px;
+  background: var(--c-surface);
+  font-family: var(--font-heading);
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--c-mid-gray);
+  white-space: nowrap;
+  cursor: pointer;
+  transition: border-color 0.15s ease, color 0.15s ease;
+}
+
+.docx-btn:hover:not(:disabled) {
+  border-color: var(--c-primary);
+  color: var(--c-primary);
+}
+
+.docx-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
 .counter {
   flex: none;
   margin-left: auto;

@@ -19,6 +19,11 @@ export function fetchCredits() {
   return http.get('/credits')
 }
 
+/** 额度用量汇总：剩余 / 已用积分与题目（「我的订单-消费记录」顶部） */
+export function fetchQuotaUsage() {
+  return http.get('/credits/usage')
+}
+
 /** 激活 / 升级套餐（支付接入前用于联调与手动开通） */
 export function applyPlan(planId) {
   return http.post(`/credits/plans/${planId}`)
